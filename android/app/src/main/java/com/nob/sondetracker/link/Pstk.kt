@@ -30,6 +30,8 @@ object Pstk {
         val course: Double?,
         /** Unix s */
         val utc: Long?,
+        /** The sending node's chip id: who this is, whatever name they use. */
+        val device: String? = null,
     ) : Msg
 
     data class Sonde(
@@ -51,6 +53,12 @@ object Pstk {
     data class Bound(val net: String) : Msg
 
     data object Rejected : Msg
+
+    /** The base removed us from the network (or started a new one). */
+    data object Kicked : Msg
+
+    /** Forget the balloon [serial] (every balloon when empty). */
+    data class Clear(val serial: String) : Msg
 
     data class Log(val text: String, val error: Boolean) : Msg
 
@@ -91,7 +99,8 @@ object Pstk {
                 val src = f.getOrNull(2)?.takeIf { it.isNotEmpty() } ?: return null
                 val lat = num(6) ?: return null
                 val lon = num(7) ?: return null
-                Pos(src, num(3)?.toInt() ?: 0, lat, lon, num(8), num(10), num(11), num(12)?.toLong())
+                val device = f.getOrNull(15)?.takeIf { it.isNotEmpty() }
+                Pos(src, num(3)?.toInt() ?: 0, lat, lon, num(8), num(10), num(11), num(12)?.toLong(), device)
             }
             "SONDE" -> {
                 val serial = f.getOrNull(2)?.takeIf { it.isNotEmpty() } ?: return null
@@ -110,6 +119,8 @@ object Pstk {
             "HEARD" -> Heard(num(2), num(3), parseBody(f.drop(4).joinToString(",")))
             "BOUND" -> f.getOrNull(2)?.takeIf { it.length == 4 }?.let(::Bound)
             "REJECTED" -> Rejected
+            "KICKED" -> Kicked
+            "CLEAR" -> Clear(f.getOrElse(2) { "" })
             "LOG" -> Log(body.removePrefix("PSTK,LOG,"), error = false)
             "ERR" -> Log(body.removePrefix("PSTK,ERR,"), error = true)
             else -> null
@@ -119,11 +130,12 @@ object Pstk {
     private fun field(v: Double?, digits: Int) = v?.let { String.format(Locale.US, "%.${digits}f", it) } ?: ""
 
     /** POS body for my own position. */
-    fun posBody(src: String, lat: Double, lon: Double, alt: Double?, speed: Double?, course: Double?, utc: Long): String =
+    fun posBody(src: String, lat: Double, lon: Double, alt: Double?, speed: Double?, course: Double?, utc: Long, device: String?): String =
         listOf(
             "PSTK", "POS", src, FIX_OK.toString(), "", "",
             String.format(Locale.US, "%.6f", lat), String.format(Locale.US, "%.6f", lon),
             field(alt, 1), "", field(speed, 2), field(course, 1), utc.toString(),
+            "", "", device ?: "",
         ).joinToString(",")
 
     /** Uppercase letters, digits and '-', up to 8: short enough to keep LoRa packets small. */

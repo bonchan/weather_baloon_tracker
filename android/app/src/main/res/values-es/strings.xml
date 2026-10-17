@@ -32,6 +32,11 @@
     <string name="net_ask_again">Pedir de nuevo</string>
     <string name="net_none">Sin red</string>
     <string name="net_rejected">La estación base rechazó el pedido.</string>
+    <string name="net_kicked">La estación base te sacó del equipo (o empezó una red nueva). Pedí unirte de nuevo.</string>
+    <string name="map_kicked">Fuera del equipo: abrí Equipo para pedir de nuevo</string>
+    <string name="compass_balloon">%1$s · %2$d m de altura</string>
+    <string name="compass_by_course">Sin brújula: la flecha sigue tu dirección de marcha</string>
+    <string name="compass_no_heading">Sin brújula: globo a %1$d° (arriba = norte)</string>
     <string name="net_join">Pedir unirse</string>
     <string name="net_need_callsign">Primero poné tu nombre.</string>
 </resources>

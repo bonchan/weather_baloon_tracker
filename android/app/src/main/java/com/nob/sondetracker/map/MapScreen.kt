@@ -35,8 +35,10 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.nob.sondetracker.R
+import com.nob.sondetracker.team.MemberColors
 import com.nob.sondetracker.team.Team
 import kotlinx.coroutines.delay
+import org.maplibre.android.location.LocationComponentOptions
 import org.maplibre.android.style.expressions.Expression.eq
 import org.maplibre.android.style.expressions.Expression.geometryType
 import org.maplibre.android.style.expressions.Expression.get
@@ -138,7 +140,7 @@ private fun point(lon: Double, lat: Double, label: String, color: String? = null
     }
 
 private fun updateTeamLayers(style: Style, members: Collection<Team.Member>, base: Team.Member?, baseLabel: String, sonde: List<Team.SondePoint>) {
-    val team = members.map { point(it.lon, it.lat, it.id, "#9b8cff") } +
+    val team = members.map { point(it.lon, it.lat, it.name, MemberColors.of(it.id)) } +
         listOfNotNull(base?.let { point(it.lon, it.lat, baseLabel, "#3fd18b") })
     style.getSourceAs<GeoJsonSource>(TEAM_SOURCE)?.setGeoJson(FeatureCollection.fromFeatures(team))
     val last = sonde.lastOrNull()
@@ -231,14 +233,27 @@ fun MapScreen(onOpenTeam: () -> Unit) {
             ) {
                 Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
                     Text(status, style = MaterialTheme.typography.bodyMedium)
-                    val net = if (node.onNetwork) {
-                        stringResource(R.string.map_net, node.net ?: "", members.size)
-                    } else {
-                        stringResource(R.string.map_no_net)
+                    val net = when {
+                        node.onNetwork -> stringResource(R.string.map_net, node.net ?: "", members.size)
+                        node.kicked -> stringResource(R.string.map_kicked)
+                        else -> stringResource(R.string.map_no_net)
                     }
                     Text(net, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+        }
+
+        val phone = Team.me.collectAsState().value
+        val balloon = sonde.lastOrNull()
+        if (phone != null && balloon != null) {
+            BalloonCompass(
+                me = phone,
+                balloon = balloon,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .safeDrawingPadding()
+                    .padding(bottom = 84.dp),
+            )
         }
 
         ExtendedFloatingActionButton(
@@ -269,6 +284,7 @@ private fun showMyLocation(context: Context, map: MapLibreMap, style: Style) {
             LocationComponentActivationOptions.builder(context, style)
                 // MapLibre's own engine on top of Android's GPS: no Google Play services needed.
                 .useDefaultLocationEngine(true)
+                .locationComponentOptions(myMarker(context))
                 .build(),
         )
     }
@@ -276,6 +292,20 @@ private fun showMyLocation(context: Context, map: MapLibreMap, style: Style) {
     lc.renderMode = RenderMode.GPS
     followMe(map)
 }
+
+/** Me on the map: just a small arrow, no halo or accuracy circle. */
+private fun myMarker(context: Context): LocationComponentOptions =
+    LocationComponentOptions.builder(context)
+        .gpsDrawable(R.drawable.ic_me_arrow)
+        .foregroundDrawable(R.drawable.ic_me_arrow)
+        .backgroundDrawable(R.drawable.ic_transparent)
+        .bearingDrawable(R.drawable.ic_transparent)
+        .accuracyAlpha(0f)
+        .elevation(0f)
+        .pulseEnabled(false)
+        .maxZoomIconScale(1f)
+        .minZoomIconScale(0.8f)
+        .build()
 
 /** Centers on me and keeps following until the user pans the map. */
 @SuppressLint("MissingPermission")

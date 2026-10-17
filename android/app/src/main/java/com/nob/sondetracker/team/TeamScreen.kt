@@ -6,7 +6,14 @@ import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -150,6 +157,7 @@ fun TeamScreen(onBack: () -> Unit) {
                         else -> {
                             Text(stringResource(R.string.net_none))
                             if (node.rejected) Hint(stringResource(R.string.net_rejected))
+                            if (node.kicked) Hint(stringResource(R.string.net_kicked))
                             Button(onClick = Team::join, enabled = Pstk.isValidCallsign(callsign)) {
                                 Text(stringResource(R.string.net_join))
                             }
@@ -161,8 +169,8 @@ fun TeamScreen(onBack: () -> Unit) {
             }
 
             Section(stringResource(R.string.team_members, members.size)) {
-                base?.let { MemberRow(stringResource(R.string.map_base), it, now) }
-                members.values.sortedBy { it.id }.forEach { MemberRow(it.id, it, now) }
+                base?.let { MemberRow(stringResource(R.string.map_base), it, now, "#3fd18b") }
+                members.values.sortedBy { it.name }.forEach { MemberRow(it.name, it, now, MemberColors.of(it.id)) }
                 if (base == null && members.isEmpty()) Hint(stringResource(R.string.team_nobody))
             }
         }
@@ -170,8 +178,10 @@ fun TeamScreen(onBack: () -> Unit) {
 }
 
 @Composable
-private fun MemberRow(name: String, m: Team.Member, now: Long) {
-    Row(Modifier.fillMaxWidth()) {
+private fun MemberRow(name: String, m: Team.Member, now: Long, color: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).background(Color(android.graphics.Color.parseColor(color)), CircleShape))
+        Spacer(Modifier.width(8.dp))
         Text(name, Modifier.weight(1f), fontFamily = FontFamily.Monospace)
         val signal = listOfNotNull(m.rssi?.let { "${it.toInt()} dBm" }, m.snr?.let { "%.1f dB".format(it) }).joinToString(" · ")
         Hint("$signal  ${stringResource(R.string.seconds_ago, (now - m.heardAt) / 1000)}")

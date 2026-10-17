@@ -25,7 +25,9 @@ import kotlin.random.Random
 @SuppressLint("StaticFieldLeak") // holds the application context only
 object Team {
     data class Member(
+        /** The node's chip id when known, else the name: stays the same when they rename. */
         val id: String,
+        val name: String,
         val lat: Double,
         val lon: Double,
         val alt: Double?,
@@ -45,6 +47,8 @@ object Team {
         val name: String? = null,
         val joinPending: Boolean = false,
         val rejected: Boolean = false,
+        /** The base removed us (or started a new network). */
+        val kicked: Boolean = false,
         val lastError: String? = null,
     ) {
         val onNetwork: Boolean get() = net != null && net != Pstk.NO_NET
@@ -115,7 +119,7 @@ object Team {
     fun join() {
         val cs = _callsign.value
         if (!Pstk.isValidCallsign(cs)) return
-        if (link.send("PSTK,JOIN,$cs")) _node.value = _node.value.copy(joinPending = true, rejected = false, lastError = null)
+        if (link.send("PSTK,JOIN,$cs")) _node.value = _node.value.copy(joinPending = true, rejected = false, kicked = false, lastError = null)
     }
 
     fun leave() {
@@ -171,6 +175,7 @@ object Team {
             speed = if (me.hasSpeed()) me.speed.toDouble() else null,
             course = if (me.hasBearing()) me.bearing.toDouble() else null,
             utc = me.time / 1000,
+            device = _node.value.device,
         )
         if (link.send("PSTK,TX,$body")) _lastSentAt.value = SystemClock.elapsedRealtime()
     }
@@ -182,6 +187,16 @@ object Team {
             is Pstk.Id -> _node.value = _node.value.copy(net = msg.net, device = msg.device, name = msg.name)
             is Pstk.Bound -> _node.value = _node.value.copy(net = msg.net, joinPending = false, rejected = false)
             Pstk.Rejected -> _node.value = _node.value.copy(joinPending = false, rejected = true)
+            Pstk.Kicked -> {
+                _node.value = _node.value.copy(net = Pstk.NO_NET, joinPending = false, kicked = true)
+                // Off the network we hear nobody any more; don't keep showing them as if live.
+                _members.value = emptyMap()
+                _base.value = null
+            }
+            is Pstk.Clear -> {
+                val last = _sonde.value.lastOrNull()
+                if (msg.serial.isEmpty() || last?.serial == msg.serial) _sonde.value = emptyList()
+            }
             is Pstk.Log -> if (msg.error) _node.value = _node.value.copy(lastError = msg.text)
             is Pstk.Heard -> heard(msg)
             else -> Unit
@@ -192,10 +207,14 @@ object Team {
         val now = SystemClock.elapsedRealtime()
         when (val inner = h.inner) {
             is Pstk.Pos -> {
-                if (inner.src == _callsign.value) return // our own position, relayed back by the base
-                val m = Member(inner.src, inner.lat, inner.lon, inner.alt, h.rssi, h.snr, now)
+                val mine = _node.value.device
+                // Our own position, relayed back by the base.
+                if (inner.device != null && inner.device == mine) return
+                if (inner.device == null && inner.src == _callsign.value) return
+                val id = inner.device ?: inner.src
+                val m = Member(id, inner.src, inner.lat, inner.lon, inner.alt, h.rssi, h.snr, now)
                 if (inner.src == Pstk.SRC_BASE) _base.value = m
-                else _members.value = _members.value + (inner.src to m)
+                else _members.value = _members.value + (id to m)
             }
             is Pstk.Sonde -> {
                 val track = _sonde.value

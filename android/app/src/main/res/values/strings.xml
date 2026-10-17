@@ -33,6 +33,11 @@
     <string name="net_ask_again">Ask again</string>
     <string name="net_none">Not on a network</string>
     <string name="net_rejected">The base station turned the request down.</string>
+    <string name="net_kicked">The base station removed you from the team (or started a new network). Ask to join again.</string>
+    <string name="map_kicked">Removed from the team: open Team to ask again</string>
+    <string name="compass_balloon">%1$s · %2$d m up</string>
+    <string name="compass_by_course">No compass: the arrow follows your direction of travel</string>
+    <string name="compass_no_heading">No compass: balloon at %1$d° (top = north)</string>
     <string name="net_join">Ask to join</string>
     <string name="net_need_callsign">Set your name first.</string>
 </resources>
