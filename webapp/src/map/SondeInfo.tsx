@@ -52,6 +52,8 @@ export function SondeInfo({ placing, onPlace, follow, onFollow, cardRef }: Props
   const toggleDemo = () => {
     if (demo) {
       stopDemo()
+      // Stopping removes the demo balloon everywhere, phones included (they get a CLEAR).
+      sondes.clearTracks(true)
       setDemo(false)
     } else {
       startDemo(() => setDemo(false))

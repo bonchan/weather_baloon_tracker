@@ -45,6 +45,8 @@ export type PositionReport = {
   /** dBm and dB of the radio packet (remote trackers). */
   rssi?: number
   snr?: number
+  /** LoRa: the sending node's chip id, which identifies a team member (names can change). */
+  device?: string
 }
 
 export type GgaSentence = {
@@ -124,7 +126,7 @@ function latLon(lat: number | undefined, lon: number | undefined) {
 }
 
 function parsePos(f: string[]): CompanionMessage | null {
-  const [src, fix, sats, hdop, lat, lon, altMsl, geoidSep, speed, course, utc, rssi, snr] = f
+  const [src, fix, sats, hdop, lat, lon, altMsl, geoidSep, speed, course, utc, rssi, snr, device] = f
   if (!src || (fix !== '0' && fix !== '1' && fix !== '2')) return null
   const time = num(utc)
   return {
@@ -142,6 +144,7 @@ function parsePos(f: string[]): CompanionMessage | null {
       utc: time ? time : undefined,
       rssi: num(rssi),
       snr: num(snr),
+      device: device || undefined,
     },
   }
 }
@@ -190,6 +193,7 @@ export function posBody(p: {
   speed?: number
   course?: number
   utc?: number
+  device?: string
 }): string {
   return [
     'PSTK',
@@ -205,6 +209,9 @@ export function posBody(p: {
     field(p.speed, 2),
     field(p.course, 1),
     p.utc === undefined ? '' : Math.round(p.utc),
+    '',
+    '',
+    p.device ?? '',
   ].join(',')
 }
 

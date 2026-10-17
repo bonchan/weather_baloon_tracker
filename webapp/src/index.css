@@ -778,6 +778,16 @@ select:disabled {
 .team-right {
   text-align: right;
 }
+.team-who {
+  flex: 1;
+  min-width: 0;
+}
+.team-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
 .team-quiet strong {
   color: var(--muted);
 }

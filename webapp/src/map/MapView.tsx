@@ -13,6 +13,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // MapLibre finds its worker next to its own file, which Vite pre-bundling breaks; hand it a bundled copy.
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import { useEffect, useRef, useState, type RefObject } from 'react'
+import { memberColor } from '../companion/colors'
 import { companions, useCompanions, type RemoteTracker } from '../companion/store'
 import { useI18n, type Lang } from '../i18n'
 import { launch, useLaunchSite, type LaunchSite } from '../sonde/launch'
@@ -117,7 +118,7 @@ function trackersGeoJson(trackers: Record<string, RemoteTracker>): FeatureCollec
     type: 'FeatureCollection',
     features: Object.values(trackers).map((t) => ({
       type: 'Feature',
-      properties: { label: t.id },
+      properties: { label: t.name, color: memberColor(t.id) },
       geometry: { type: 'Point', coordinates: [t.lon, t.lat] },
     })),
   }
@@ -189,7 +190,7 @@ function addOverlays(map: MapLibreMap) {
     id: 'trackers',
     type: 'circle',
     source: 'trackers',
-    paint: { 'circle-radius': 5, 'circle-color': '#b48cff', 'circle-stroke-width': 2, 'circle-stroke-color': '#0a0e14' },
+    paint: { 'circle-radius': 6, 'circle-color': ['get', 'color'], 'circle-stroke-width': 2, 'circle-stroke-color': '#0a0e14' },
   })
   map.addLayer({
     id: 'sondes',

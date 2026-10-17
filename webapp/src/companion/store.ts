@@ -47,7 +47,12 @@ export type MyPosition = {
 }
 
 export type RemoteTracker = {
+  /** The node's chip id when known (LoRa team members), else the name. */
   id: string
+  /** The name they go by on the network. */
+  name: string
+  /** LoRa chip id, for kicking. */
+  device?: string
   lat: number
   lon: number
   alt?: number
@@ -119,6 +124,16 @@ class CompanionStore {
     const device: CompanionDevice = { id, ...usb, link: 'opening', protocol: null, fix: null, lastSeen: null, logs: [] }
     this.set({ devices: [...devices, device] })
     return id
+  }
+
+  removeTracker(id: string) {
+    const { [id]: _gone, ...rest } = this.state.trackers
+    this.set({ trackers: rest })
+  }
+
+  /** Drops every LoRa team member, e.g. after starting a new network. */
+  clearTeam() {
+    this.set({ trackers: Object.fromEntries(Object.entries(this.state.trackers).filter(([, t]) => !t.device)) })
   }
 
   /** Forgets a join request once it was answered. */
@@ -216,8 +231,11 @@ class CompanionStore {
     if (p.src !== SRC_SELF) {
       this.patch(device.id, { lastSeen: now })
       if (hasPosition) {
+        const key = p.device ?? p.src
         const tracker: RemoteTracker = {
-          id: p.src,
+          id: key,
+          name: p.src,
+          device: p.device,
           lat: p.lat!,
           lon: p.lon!,
           alt: ellipsoidHeight(p),
@@ -229,7 +247,7 @@ class CompanionStore {
           deviceId: device.id,
           utc: p.utc,
         }
-        this.set({ trackers: { ...this.state.trackers, [p.src]: tracker } })
+        this.set({ trackers: { ...this.state.trackers, [key]: tracker } })
       }
       return
     }

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
+import { memberColor } from '../companion/colors'
 import { NO_NET } from '../companion/protocol'
 import { useCompanions } from '../companion/store'
-import { acceptJoin, baseStation, newNetwork, rejectJoin } from '../companion/team'
+import { acceptJoin, baseStation, kickMember, newNetwork, rejectJoin } from '../companion/team'
 import { distanceBearing } from '../geo'
 import { useI18n } from '../i18n'
 import { useYou } from '../you'
@@ -43,7 +44,11 @@ export function TeamPanel() {
     if (window.confirm(t('team.newNetConfirm'))) void newNetwork()
   }
 
-  const members = Object.values(trackers).sort((a, b) => a.id.localeCompare(b.id))
+  const kick = (device: string, id: string, name: string) => {
+    if (window.confirm(t('team.kickConfirm', { name }))) void kickMember(device, id)
+  }
+
+  const members = Object.values(trackers).sort((a, b) => a.name.localeCompare(b.name))
 
   return (
     <Panel title={t('team.title')}>
@@ -92,14 +97,20 @@ export function TeamPanel() {
               const away = you ? distanceBearing(you.lat, you.lon, m.lat, m.lon).distance : null
               return (
                 <div key={m.id} className={`team-row ${quiet ? 'team-quiet' : ''}`}>
-                  <div>
-                    <strong className="mono">{m.id}</strong>
-                    <div className="small muted mono">{signal(m.rssi, m.snr)}</div>
+                  <span className="team-dot" style={{ background: memberColor(m.id) }} aria-hidden />
+                  <div className="team-who">
+                    <strong className="mono">{m.name}</strong>
+                    <div className="small muted mono">{[m.device, signal(m.rssi, m.snr)].filter(Boolean).join(' · ')}</div>
                   </div>
                   <div className="small mono team-right">
                     {away !== null && <div>{away < 1000 ? `${Math.round(away)} m` : `${(away / 1000).toFixed(1)} km`}</div>}
                     <div className={quiet ? 'warn' : 'muted'}>{t('team.ago', { s: ago })}</div>
                   </div>
+                  {m.device && (
+                    <button className="icon-btn" title={t('team.kick')} aria-label={t('team.kick')} onClick={() => kick(m.device!, m.id, m.name)}>
+                      ×
+                    </button>
+                  )}
                 </div>
               )
             })}

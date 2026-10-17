@@ -64,3 +64,25 @@ describe('team in the companion store', () => {
     companions.removeDevice(id)
   })
 })
+
+describe('team members are their node, not their name', () => {
+  it('keeps one member when a satellite changes its name', () => {
+    const id = companions.addDevice({})
+    companions.setLink(id, 'open')
+    companions.handleLine(id, line(`PSTK,HEARD,-80,7.0,${posBody({ src: 'JUAN', lat: -38.9, lon: -68.0, device: 'A1B2C3' })}`), 1000)
+    companions.handleLine(id, line(`PSTK,HEARD,-81,6.0,${posBody({ src: 'JUANCHO', lat: -38.91, lon: -68.01, device: 'A1B2C3' })}`), 2000)
+    const team = Object.values(companions.getState().trackers).filter((t) => t.device === 'A1B2C3')
+    expect(team).toHaveLength(1)
+    expect(team[0]).toMatchObject({ id: 'A1B2C3', name: 'JUANCHO', lat: -38.91 })
+
+    companions.clearTeam()
+    expect(companions.getState().trackers.A1B2C3).toBeUndefined()
+    companions.removeDevice(id)
+  })
+
+  it('gives a member the same color everywhere', async () => {
+    const { memberColor } = await import('./colors')
+    // Pinned: android/.../team/MemberColors.kt must give the same (hash 1908163728, index 0).
+    expect(memberColor('A1B2C3')).toBe('#9b8cff')
+  })
+})

@@ -43,16 +43,38 @@ export async function rejectJoin(loraId: string): Promise<boolean> {
   return ok
 }
 
-/** New random network id: every satellite has to ask to join again. */
+/** New random network id: the base kicks everyone first, and every satellite has to ask again. */
 export async function newNetwork(): Promise<boolean> {
   const b = base()
   if (!b) return false
-  return companionLink.send(b.id, 'PSTK,NEWNET')
+  const ok = await companionLink.send(b.id, 'PSTK,NEWNET')
+  if (ok) companions.clearTeam()
+  return ok
+}
+
+/** Removes a satellite from the network; it has to ask to join again. */
+export async function kickMember(device: string, trackerId: string): Promise<boolean> {
+  const b = base()
+  if (!b) return false
+  const ok = await companionLink.send(b.id, `PSTK,KICK,${device}`)
+  if (ok) companions.removeTracker(trackerId)
+  return ok
 }
 
 let lastSondeAt = 0
 let lastSondeKey = ''
 const relayedAt = new Map<string, number>()
+
+/** CLEAR lines waiting to go out; each goes twice, as one LoRa packet can get lost. */
+const clears: string[] = []
+let knownSerials = new Set(Object.keys(sondes.getState().tracks))
+sondes.subscribe(() => {
+  const now = new Set(Object.keys(sondes.getState().tracks))
+  for (const serial of knownSerials) {
+    if (!now.has(serial)) clears.push(serial, serial)
+  }
+  knownSerials = now
+})
 
 /** The balloon, if there is something new to tell. */
 function sondeToSend(now: number): string | null {
@@ -90,7 +112,7 @@ function relayToSend(now: number): string | null {
   if (!due) return null
   const t = companions.getState().trackers[due.id]
   relayedAt.set(t.id, now)
-  return posBody({ src: t.id, lat: t.lat, lon: t.lon, altMsl: t.alt, speed: t.speed, course: t.course, utc: t.utc })
+  return posBody({ src: t.name, lat: t.lat, lon: t.lon, altMsl: t.alt, speed: t.speed, course: t.course, utc: t.utc, device: t.device })
 }
 
 let timer: ReturnType<typeof setInterval> | undefined
@@ -102,7 +124,8 @@ export function startTeamRelay() {
     const b = base()
     if (!b || !b.net) return
     const now = Date.now()
-    const body = sondeToSend(now) ?? relayToSend(now)
+    const clear = clears.shift()
+    const body = clear !== undefined ? `PSTK,CLEAR,${clear}` : (sondeToSend(now) ?? relayToSend(now))
     if (body) void companionLink.send(b.id, `PSTK,TX,${body}`)
   }, TICK_MS)
 }
