@@ -115,6 +115,7 @@ pnpm build       # typecheck + production build
 5. ~~RS41 temperature and humidity (needs the calibration subframe collected over 51 frames)~~
 6. Landing prediction: offline estimate from the descent rate and the winds measured on the way up
 7. Logging (IndexedDB) and export (CSV / GPX / KML)
+8. USB GPS: live station position from the companion in `arduino/esp32c3_weather_balook_tracker_companion` (ESP32-C3 + NEO-6M; the Arduino side is done). Open it with Web Serial (Chrome/Edge, USB vendor `0x303A`), send `$PSTK,HELLO`, and feed `$PSTK,POS` lines with src `SELF` to `sondes.setStation()`, altitude = `altMsl + geoidSep`. Skip the raw NMEA lines it also passes through, and resync on `$`. The protocol is in `arduino/common/SondeTrackerLink.h`, shared with the LoRa tracker sketch to come.
 
 ## Credits
 
