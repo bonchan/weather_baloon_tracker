@@ -3,6 +3,7 @@ import { ecefToEnu } from '../../geo'
 import type { SondeFix } from '../store'
 import { Rs41Receiver } from './receiver'
 import { buildFrame, frameBits, modulate, type Burst, type ModulationOptions, type SyntheticFix } from './synthetic'
+import { K1930308_CALIBRATION } from './testdata'
 
 const CENTER = 403_000_000
 const MARKER = CENTER + 250_000
@@ -89,5 +90,23 @@ describe('RS41 receiver', () => {
     const { fixes, status } = receive(modulate(damaged, options), options.sampleRate)
     expectDecoded(fixes)
     expect(status.badFrames).toBe(0)
+  })
+
+  it('adds temperature once the frames have brought its calibration', () => {
+    // Subframes 3-6 hold what air temperature needs. Counts from K1930308 #5056, where rs41mod first shows -43.2 °C.
+    const counts = [139699, 130602, 190186, 529214, 466359, 533221, 134218, 130602, 190187]
+    const frames: SyntheticFix[] = [3, 4, 5, 6].map((index, i) => ({
+      ...FIXES[0],
+      frame: 4200 + i,
+      calibration: { index, data: Uint8Array.from(K1930308_CALIBRATION[index].match(/../g)!, (h) => parseInt(h, 16)) },
+      ptu: counts,
+    }))
+    const options: ModulationOptions = { sampleRate: 2_048_000, offset: MARKER - CENTER, noise: 0.05 }
+    const iq = modulate(frames.map((fix) => ({ bits: frameBits(buildFrame(fix)), gap: 0.35 })), options)
+    const { fixes, status } = receive(iq, options.sampleRate)
+    expect(fixes.map((f) => f.temperature !== undefined)).toEqual([false, false, false, true])
+    expect(fixes[3].temperature).toBeCloseTo(-43.205, 2)
+    expect(fixes.every((f) => f.humidity === undefined)).toBe(true)
+    expect(status.calibration).toBe(4)
   })
 })

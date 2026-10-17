@@ -3,6 +3,8 @@ import {
   BLOCK_GPS_INFO,
   BLOCK_GPS_POS,
   BLOCK_POS_DATETIME,
+  BLOCK_PTU,
+  BLOCK_SGM_TU,
   BLOCK_STATUS,
   crc16,
   EXTENDED_LENGTH,
@@ -40,6 +42,10 @@ export type Rs41Data = {
   time?: number
   ecef?: Ecef
   satellites?: number
+  /** This frame's piece of the sonde's calibration (see ptu.ts). */
+  calibration?: { index: number; data: Uint8Array }
+  /** Raw PTU counts: air temperature, humidity, humidity sensor temperature, each with two references. */
+  ptu?: number[]
   /** RS41-SGM with encryption: no position to be had. */
   encrypted: boolean
 }
@@ -94,6 +100,7 @@ export function correctFrame(frame: Uint8Array, length: number): number {
 const i32 = (b: Uint8Array, p: number) => (b[p] | (b[p + 1] << 8) | (b[p + 2] << 16) | (b[p + 3] << 24))
 const u32 = (b: Uint8Array, p: number) => i32(b, p) >>> 0
 const u16 = (b: Uint8Array, p: number) => b[p] | (b[p + 1] << 8)
+const u24 = (b: Uint8Array, p: number) => b[p] | (b[p + 1] << 8) | (b[p + 2] << 16)
 const i16 = (b: Uint8Array, p: number) => (u16(b, p) << 16) >> 16
 
 function readEcef(b: Uint8Array, p: number): Ecef {
@@ -129,6 +136,12 @@ export function decodeFrame(frame: Uint8Array, length: number): Rs41Data {
         data.frame = u16(frame, start)
         data.serial = String.fromCharCode(...frame.subarray(start + 2, start + 10)).replace(/[^\x20-\x7e]/g, '?')
         data.battery = frame[start + 10] / 10
+        if (len >= 0x28) data.calibration = { index: frame[start + 0x17], data: frame.slice(start + 0x18, start + 0x28) }
+        break
+      case BLOCK_PTU:
+      case BLOCK_SGM_TU:
+        if (len < 27) break
+        data.ptu = Array.from({ length: 9 }, (_, i) => u24(frame, start + 3 * i))
         break
       case BLOCK_GPS_INFO:
         if (len < 6) break

@@ -3,6 +3,7 @@ import type { DecoderStatus } from '../dsp/messages'
 import { formatDb, formatDuration, formatMHz, formatOffset, formatRate } from '../format'
 import { useI18n } from '../i18n'
 import type { SdrState } from '../sdr/controller'
+import { CALIBRATION_SUBFRAMES } from '../sonde/rs41/ptu'
 import { Panel } from './Panel'
 
 /** Below this share of the requested rate, USB is losing samples. */
@@ -56,10 +57,23 @@ function DecoderRows({ status }: { status: DecoderStatus }) {
             <dd className="mono">{formatOffset(status.offset)}</dd>
           </>
         )}
+        {running && status.calibration !== null && (
+          <>
+            <dt>{t('decoder.calibration')}</dt>
+            <dd className="mono">
+              {status.calibration < CALIBRATION_SUBFRAMES
+                ? `${status.calibration}/${CALIBRATION_SUBFRAMES}`
+                : t('decoder.calibrationDone')}
+            </dd>
+          </>
+        )}
       </dl>
       {status.state === 'no-marker' && <p className="small muted">{t('decoder.noMarkerHelp')}</p>}
       {status.state === 'out-of-band' && <p className="small warn">{t('decoder.outOfBandHelp')}</p>}
       {running && status.serial !== null && !status.gpsFix && <p className="small muted">{t('decoder.noGps')}</p>}
+      {running && status.calibration !== null && status.calibration < CALIBRATION_SUBFRAMES && (
+        <p className="small muted">{t('decoder.calibrationHelp')}</p>
+      )}
     </>
   )
 }

@@ -81,6 +81,18 @@ export function SondeInfo({ placingStation, onPlaceStation, follow, onFollow }: 
                 <dd className="mono">{fmt(last.speed * 3.6)} km/h</dd>
               </>
             )}
+            {last.temperature !== undefined && (
+              <>
+                <dt>{t('map.temperature')}</dt>
+                <dd className="mono">{fmt(last.temperature, 1)} °C</dd>
+              </>
+            )}
+            {last.humidity !== undefined && (
+              <>
+                <dt>{t('map.humidity')}</dt>
+                <dd className="mono">{fmt(last.humidity)} %</dd>
+              </>
+            )}
             <dt>{t('map.burst')}</dt>
             <dd className="mono">{fmt(maxAlt)} m</dd>
             {link && station && (

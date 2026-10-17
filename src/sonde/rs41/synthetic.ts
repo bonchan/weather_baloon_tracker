@@ -29,6 +29,9 @@ export type SyntheticFix = {
   gpsWeek: number
   /** GPS time of week, ms. */
   tow: number
+  calibration?: { index: number; data: Uint8Array }
+  /** Raw PTU counts, 24 bits each. */
+  ptu?: number[]
 }
 
 /** A standard 320-byte frame (descrambled) with the usual block layout, valid CRCs and parity. */
@@ -49,8 +52,16 @@ export function buildFrame(fix: SyntheticFix): Uint8Array {
     view.setUint16(d, fix.frame, true)
     for (let i = 0; i < 8; i++) frame[d + 2 + i] = fix.serial.charCodeAt(i)
     frame[d + 10] = 29
+    if (fix.calibration) {
+      frame[d + 0x17] = fix.calibration.index
+      frame.set(fix.calibration.data, d + 0x18)
+    }
   })
-  block(BLOCK_PTU, 0x2a, () => {})
+  block(BLOCK_PTU, 0x2a, (d) => {
+    fix.ptu?.forEach((count, i) => {
+      for (let b = 0; b < 3; b++) frame[d + 3 * i + b] = (count >> (8 * b)) & 0xff
+    })
+  })
   block(BLOCK_GPS_INFO, 0x1e, (d) => {
     view.setUint16(d, fix.gpsWeek, true)
     view.setUint32(d + 2, fix.tow, true)

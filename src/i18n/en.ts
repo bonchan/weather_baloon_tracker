@@ -76,6 +76,9 @@ export const en = {
   'decoder.sonde': 'Sonde',
   'decoder.offset': 'Sonde offset',
   'decoder.noGps': 'Frames decode but carry no GPS position yet.',
+  'decoder.calibration': 'Calibration',
+  'decoder.calibrationDone': 'complete',
+  'decoder.calibrationHelp': 'Temperature and humidity appear as the sonde sends its calibration, one piece per second (51 in all).',
 
   'spectrum.title': 'Spectrum',
   'spectrum.paused': 'paused',
@@ -123,6 +126,8 @@ export const en = {
   'map.altitude': 'Altitude',
   'map.climb': 'Climb',
   'map.speed': 'Ground speed',
+  'map.temperature': 'Temperature',
+  'map.humidity': 'Humidity',
   'map.distance': 'Distance',
   'map.bearing': 'Bearing',
   'map.elevation': 'Elevation',

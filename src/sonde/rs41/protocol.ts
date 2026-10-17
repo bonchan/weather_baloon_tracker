@@ -33,6 +33,8 @@ export const FIRST_BLOCK_POS = 0x039
 
 export const BLOCK_STATUS = 0x79
 export const BLOCK_PTU = 0x7a
+/** RS41-SGM: temperature and humidity counts without the pressure ones. */
+export const BLOCK_SGM_TU = 0x7f
 export const BLOCK_GPS_POS = 0x7b
 export const BLOCK_GPS_INFO = 0x7c
 export const BLOCK_GPS_RAW = 0x7d

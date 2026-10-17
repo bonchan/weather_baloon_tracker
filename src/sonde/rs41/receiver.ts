@@ -4,6 +4,7 @@ import { ecefToEnu, ecefToGeodetic } from '../../geo'
 import type { SondeFix } from '../store'
 import { Rs41Demodulator, type RawFrame } from './demod'
 import { decodeFrame, type Rs41Data } from './frame'
+import { readPtu, Rs41Calibration } from './ptu'
 
 /** The channel needs this much room inside the tuner's band. */
 const EDGE_MARGIN = 15_000
@@ -13,13 +14,14 @@ const MAX_AFC = 12_000
 const LOCK_HOLD = 3
 
 /** Turns a GPS block into a map fix, or null when the sonde has no usable position. */
-export function toFix(data: Rs41Data, receivedAt: number): SondeFix | null {
+export function toFix(data: Rs41Data, receivedAt: number, calibration?: Rs41Calibration): SondeFix | null {
   const { ecef, serial, frame } = data
   if (!ecef || serial === undefined || frame === undefined) return null
   if (ecef.x === 0 && ecef.y === 0 && ecef.z === 0) return null
   const { lat, lon, alt } = ecefToGeodetic(ecef.x, ecef.y, ecef.z)
   if (!(alt > -1000 && alt < 80_000)) return null
   const v = ecefToEnu(lat, lon, ecef.vx, ecef.vy, ecef.vz)
+  const ptu = calibration && data.ptu ? readPtu(calibration, data.ptu, alt) : {}
   return {
     serial,
     frame,
@@ -30,6 +32,7 @@ export function toFix(data: Rs41Data, receivedAt: number): SondeFix | null {
     climb: v.up,
     speed: Math.hypot(v.east, v.north),
     heading: ((Math.atan2(v.east, v.north) * 180) / Math.PI + 360) % 360,
+    ...ptu,
     receivedAt,
   }
 }
@@ -55,6 +58,8 @@ export class Rs41Receiver {
   private lastSync = -Infinity
   private lastGood = -Infinity
   private stats = { goodFrames: 0, badFrames: 0, serial: null as string | null, frame: null as number | null, gpsFix: false }
+  /** Per serial, and kept across resets: collecting one takes 51 frames. */
+  private calibrations = new Map<string, Rs41Calibration>()
 
   constructor(onFix: (fix: SondeFix) => void) {
     this.onFix = onFix
@@ -107,7 +112,8 @@ export class Rs41Receiver {
             : this.clock - this.lastSync < LOCK_HOLD || this.demod?.inFrame
               ? 'sync'
               : 'searching'
-    return { state, ...this.stats, offset: this.stats.goodFrames ? this.afc : null }
+    const calibration = this.stats.serial === null ? null : (this.calibrations.get(this.stats.serial)?.count ?? 0)
+    return { state, ...this.stats, offset: this.stats.goodFrames ? this.afc : null, calibration }
   }
 
   private handleFrame = (raw: RawFrame) => {
@@ -122,7 +128,11 @@ export class Rs41Receiver {
     this.afc = Math.max(-MAX_AFC, Math.min(MAX_AFC, this.afc + raw.offset))
     this.channelizer?.setOffset(this.frequency! - this.tuning.centerFrequency + this.afc)
 
-    const fix = toFix(data, Date.now())
+    let calibration = this.calibrations.get(data.serial)
+    if (!calibration) this.calibrations.set(data.serial, (calibration = new Rs41Calibration()))
+    if (data.calibration) calibration.add(data.calibration.index, data.calibration.data)
+
+    const fix = toFix(data, Date.now(), calibration)
     this.stats = {
       goodFrames: this.stats.goodFrames + 1,
       badFrames: this.stats.badFrames,
