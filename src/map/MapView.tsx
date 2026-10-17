@@ -86,10 +86,12 @@ function youGeoJson(you: You | null, state: SondeState, label: string): FeatureC
   const active = state.active ? state.tracks[state.active] : undefined
   const last = active?.fixes[active.fixes.length - 1]
   const moving = you.speed !== undefined && you.speed >= MOVING_SPEED && you.course !== undefined
+  // Red unless a GPS has a fix right now: a placed pin, or a fix's last position.
+  const fix = you.source === 'gps' && !you.stale
   const features: Feature[] = [
     {
       type: 'Feature',
-      properties: { label, moving, course: you.course ?? 0, stale: you.stale },
+      properties: { label, icon: `you-${moving ? 'arrow' : 'dot'}${fix ? '' : '-nofix'}`, course: you.course ?? 0 },
       geometry: { type: 'Point', coordinates: [you.lon, you.lat] },
     },
   ]
@@ -122,7 +124,7 @@ function trackersGeoJson(trackers: Record<string, RemoteTracker>): FeatureCollec
 }
 
 /** My marker, drawn at 2x: an arrow pointing north for the map to turn by course, or a dot. */
-function youImage(arrow: boolean): ImageData {
+function youImage(arrow: boolean, color: string): ImageData {
   const size = 44
   const canvas = document.createElement('canvas')
   canvas.width = canvas.height = size
@@ -139,7 +141,7 @@ function youImage(arrow: boolean): ImageData {
   }
   g.shadowColor = 'rgba(0, 0, 0, 0.7)'
   g.shadowBlur = 4
-  g.fillStyle = '#ffd23f'
+  g.fillStyle = color
   g.fill()
   g.shadowColor = 'transparent'
   g.lineWidth = 3
@@ -156,8 +158,10 @@ function addOverlays(map: MapLibreMap) {
   map.addSource('launch', { type: 'geojson', data: empty })
   map.addSource('trackers', { type: 'geojson', data: empty })
   map.addSource('you', { type: 'geojson', data: empty })
-  map.addImage('you-arrow', youImage(true), { pixelRatio: 2 })
-  map.addImage('you-dot', youImage(false), { pixelRatio: 2 })
+  map.addImage('you-arrow', youImage(true, '#ffd23f'), { pixelRatio: 2 })
+  map.addImage('you-dot', youImage(false, '#ffd23f'), { pixelRatio: 2 })
+  map.addImage('you-arrow-nofix', youImage(true, '#ff4d4d'), { pixelRatio: 2 })
+  map.addImage('you-dot-nofix', youImage(false, '#ff4d4d'), { pixelRatio: 2 })
   map.addLayer({
     id: 'you-link',
     type: 'line',
@@ -224,13 +228,13 @@ function addOverlays(map: MapLibreMap) {
       ...label,
       'text-field': ['get', 'label'],
       'text-offset': [1.3, 0],
-      'icon-image': ['case', ['get', 'moving'], 'you-arrow', 'you-dot'],
+      'icon-image': ['get', 'icon'],
       'icon-rotate': ['get', 'course'],
       'icon-rotation-alignment': 'map',
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
     },
-    paint: { ...halo, 'icon-opacity': ['case', ['get', 'stale'], 0.4, 1] },
+    paint: halo,
   })
 }
 

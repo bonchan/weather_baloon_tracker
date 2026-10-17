@@ -87,11 +87,11 @@ The saved map belongs to the browser profile and the address (`http://localhost:
 
 ## GPS companions
 
-Plug a USB GPS into the laptop and the app knows where you are: a yellow marker on the map (an arrow pointing where you're driving), and distance, bearing and elevation to the sonde are measured from there throughout the chase.
+Plug a USB GPS into the laptop and the app knows where you are: a yellow marker on the map (an arrow pointing where you're driving; red while no GPS has a fix), and distance, bearing and elevation to the sonde are measured from there throughout the chase.
 
 - **Which GPS**: the Sonde Tracker companions in `arduino/` (ESP32-C3 + NEO-6M, Heltec Wireless Tracker), or any USB GPS that sends NMEA GGA/RMC, like a u-blox USB puck. Several can be connected at once.
 - **Connect**: in the sidebar's *GPS companions* panel, click **Connect GPS** and pick the port in the browser's list. This uses Web Serial, so Chrome or Edge on a computer. From then on the app opens it by itself whenever it's plugged in. *Disconnect* stops that until you click *Connect* again, and *Forget* removes the permission.
-- **You**: while a GPS has a fix, it is where you are, whatever you placed by hand. If the fix drops (a valley, a tunnel), its last position stays, dimmed, until the fix returns or you place yourself somewhere newer. Like the sonde's altitude, your height is above the WGS84 ellipsoid when the GPS reports the geoid separation, otherwise above sea level.
+- **You**: while a GPS has a fix, it is where you are, whatever you placed by hand. If the fix drops (a valley, a tunnel), its last position stays, in red, until the fix returns or you place yourself somewhere newer. Like the sonde's altitude, your height is above the WGS84 ellipsoid when the GPS reports the geoid separation, otherwise above sea level.
 - **Follow me** in the map card keeps the map centered on you; **Follow both** pans and zooms to keep you and the sonde in view.
 - The panel shows each device's fix, satellites, HDOP, how long since it last sent something, and a companion's latest log lines. Lines that arrive in the first half second after opening were queued in the device while the port was closed, so their positions are skipped.
 - Uploading a sketch from the Arduino IDE needs the port: click *Disconnect* in the app first.
