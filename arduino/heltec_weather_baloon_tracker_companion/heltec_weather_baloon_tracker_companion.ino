@@ -107,7 +107,11 @@ bool handleCommands() {
       sendTo("ACCEPT", reply);
     } else if (commands.is("REJECT")) {
       sendTo("REJECT", args);
+    } else if (commands.is("KICK")) {
+      sendTo("KICK", args);
     } else if (commands.is("NEWNET")) {
+      // Tell everyone on the old network they're out, so their phones show it.
+      sendTo("KICK", "*");
       stk::NetStore::random(net);
       netStore.save(net);
       sendId();

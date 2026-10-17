@@ -212,6 +212,14 @@ void handleLora() {
       joinPending = false;
       stk::Sentence s("REJECTED");
       emit(s);
+    } else if (lora.is("KICK") && onNetwork() && strcmp(lora.net(), net) == 0 &&
+               (forMeExact(lora.args()) || strcmp(lora.args(), "*") == 0)) {
+      strlcpy(net, stk::NO_NET, sizeof(net));
+      netStore.save(net);
+      joinPending = false;
+      stk::Sentence s("KICKED");
+      emit(s);
+      sendId();
     } else if (onNetwork() && strcmp(lora.net(), net) == 0) {
       heardCount++;
       stk::Sentence s("HEARD");

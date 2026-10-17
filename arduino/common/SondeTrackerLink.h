@@ -21,8 +21,10 @@
 //        station: GPS + LoRa, on the computer running the web app) or KIND_LORA (satellite
 //        node: LoRa + Bluetooth, paired with a phone). net and device only for LoRa kinds:
 //        net is the team network the node belongs to (NO_NET when none), device its chip id.
-//   POS  src,fix,sats,hdop,lat,lon,altMsl,geoidSep,speed,course,utc,rssi,snr
-//        src        SRC_SELF for the device's own GPS, otherwise the remote tracker's id
+//   POS  src,fix,sats,hdop,lat,lon,altMsl,geoidSep,speed,course,utc,rssi,snr,device
+//        src        SRC_SELF for the device's own GPS, otherwise the remote tracker's name
+//        device     LoRa only: the sending node's chip id, which identifies a team member
+//                   (names can change); empty for USB GPS reports
 //        fix        0 = no data from the GPS module, 1 = searching, 2 = fix
 //        sats       satellites used
 //        hdop
@@ -42,6 +44,7 @@
 //        Base station only: a satellite asks to join (the web app shows it for approval).
 //   BOUND net       satellite: the base accepted us; we are now on network net
 //   REJECTED        satellite: the base turned our JOIN down
+//   KICKED          satellite: the base removed us from the network (or started a new one)
 //
 // App -> device (checksum optional, so commands can be typed in a serial monitor)
 //   HELLO           -> ID
@@ -49,7 +52,8 @@
 //   Base station only:
 //     ACCEPT device   let a satellite in: sends it our net
 //     REJECT device
-//     NEWNET          start a new network (new random net); every satellite has to join again
+//     KICK device     remove a satellite from the network
+//     NEWNET          start a new network (new random net): kicks every satellite first
 //   Satellite only:
 //     JOIN callsign   ask the base station to let us in (goes out with our device id)
 //     LEAVE           forget the network
@@ -63,6 +67,8 @@
 //   JOIN    device,callsign   satellite -> base, sent with net NO_NET
 //   ACCEPT  device,net        base -> satellite
 //   REJECT  device            base -> satellite
+//   KICK    device            base -> satellite on our net; device "*" = everyone
+//   CLEAR   serial            base -> all: forget that balloon's track ("" = every track)
 // The base station (the web app) relays what it hears, so satellites out of range of each
 // other still see each other. This is coordination, not security: anyone can listen.
 //
