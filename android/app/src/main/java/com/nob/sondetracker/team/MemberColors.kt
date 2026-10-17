@@ -6,7 +6,8 @@ package com.nob.sondetracker.team
  * "A1B2C3" must give "#9b8cff", as the web app's test pins.
  */
 object MemberColors {
-    val PALETTE = listOf("#9b8cff", "#ffb347", "#4dd0e1", "#ff6f91", "#a5d65a", "#f4d35e", "#c792ea", "#5cc8ff")
+    // No reds or greens: the web app uses those for offline / online.
+    val PALETTE = listOf("#9b8cff", "#ffb347", "#4dd0e1", "#d7ccc8", "#b0bec5", "#f4d35e", "#c792ea", "#5cc8ff")
 
     fun of(id: String): String {
         var h = 0L

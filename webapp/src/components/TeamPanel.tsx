@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { memberColor } from '../companion/colors'
+import { ONLINE_MS, statusColor } from '../companion/colors'
 import { NO_NET } from '../companion/protocol'
 import { useCompanions } from '../companion/store'
 import { acceptJoin, baseStation, kickMember, newNetwork, rejectJoin } from '../companion/team'
@@ -8,8 +8,6 @@ import { useI18n } from '../i18n'
 import { useYou } from '../you'
 import { Panel } from './Panel'
 
-/** Members not heard for this long are shown as gone quiet. */
-const QUIET_MS = 90_000
 
 function useClock(ms: number) {
   const [now, setNow] = useState(() => Date.now())
@@ -93,11 +91,11 @@ export function TeamPanel() {
             {members.length === 0 && <span className="small muted">{t('team.noMembers')}</span>}
             {members.map((m) => {
               const ago = Math.max(0, Math.round((now - m.receivedAt) / 1000))
-              const quiet = now - m.receivedAt > QUIET_MS
+              const quiet = now - m.receivedAt > ONLINE_MS
               const away = you ? distanceBearing(you.lat, you.lon, m.lat, m.lon).distance : null
               return (
                 <div key={m.id} className={`team-row ${quiet ? 'team-quiet' : ''}`}>
-                  <span className="team-dot" style={{ background: memberColor(m.id) }} aria-hidden />
+                  <span className="team-dot" style={{ background: statusColor(m.receivedAt, now) }} aria-hidden />
                   <div className="team-who">
                     <strong className="mono">{m.name}</strong>
                     <div className="small muted mono">{[m.device, signal(m.rssi, m.snr)].filter(Boolean).join(' · ')}</div>

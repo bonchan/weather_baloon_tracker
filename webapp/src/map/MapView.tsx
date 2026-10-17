@@ -13,7 +13,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // MapLibre finds its worker next to its own file, which Vite pre-bundling breaks; hand it a bundled copy.
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import { useEffect, useRef, useState, type RefObject } from 'react'
-import { memberColor } from '../companion/colors'
+import { statusColor } from '../companion/colors'
 import { companions, useCompanions, type RemoteTracker } from '../companion/store'
 import { useI18n, type Lang } from '../i18n'
 import { launch, useLaunchSite, type LaunchSite } from '../sonde/launch'
@@ -113,12 +113,12 @@ function launchGeoJson(site: LaunchSite, label: string): FeatureCollection {
   }
 }
 
-function trackersGeoJson(trackers: Record<string, RemoteTracker>): FeatureCollection {
+function trackersGeoJson(trackers: Record<string, RemoteTracker>, now: number): FeatureCollection {
   return {
     type: 'FeatureCollection',
     features: Object.values(trackers).map((t) => ({
       type: 'Feature',
-      properties: { label: t.name, color: memberColor(t.id) },
+      properties: { label: t.name, color: statusColor(t.receivedAt, now) },
       geometry: { type: 'Point', coordinates: [t.lon, t.lat] },
     })),
   }
@@ -275,6 +275,12 @@ function MapCanvas({ lang, placing, onPlaced, follow, cardRef, visible, onViewCh
   const [loadedMap, setLoadedMap] = useState<MapLibreMap | null>(null)
   const state = useSondes()
   const { trackers } = useCompanions()
+  // Re-colors team members that went quiet even when no new position arrives.
+  const [statusTick, setStatusTick] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setStatusTick(Date.now()), 5_000)
+    return () => clearInterval(id)
+  }, [])
   const you = useYou()
   const launchSite = useLaunchSite()
   // The map is created once; its handlers read the latest props through refs.
@@ -347,8 +353,8 @@ function MapCanvas({ lang, placing, onPlaced, follow, cardRef, visible, onViewCh
   useEffect(() => {
     const map = loadedMap
     if (!map || map !== mapRef.current) return
-    ;(map.getSource('trackers') as GeoJSONSource).setData(trackersGeoJson(trackers))
-  }, [trackers, loadedMap])
+    ;(map.getSource('trackers') as GeoJSONSource).setData(trackersGeoJson(trackers, statusTick))
+  }, [trackers, loadedMap, statusTick])
 
   const active = state.active ? state.tracks[state.active] : undefined
   const last = active?.fixes[active.fixes.length - 1]
