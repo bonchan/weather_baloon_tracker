@@ -35,7 +35,16 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.nob.sondetracker.R
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.TextButton
+import com.nob.sondetracker.offline.Bounds
+import com.nob.sondetracker.offline.MapDownloadDialog
+import com.nob.sondetracker.offline.OfflineMaps
 import com.nob.sondetracker.team.MemberColors
+import org.maplibre.android.style.layers.Property
+import org.maplibre.android.style.layers.PropertyFactory.visibility
 import com.nob.sondetracker.team.Team
 import kotlinx.coroutines.delay
 import org.maplibre.android.location.LocationComponentOptions
@@ -91,10 +100,18 @@ private fun hasLocationPermission(context: Context) =
     ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
         PackageManager.PERMISSION_GRANTED
 
-/** Bundled style (assets/map), with place names in Spanish unless the phone is set to English. */
-private fun styleUri(): String {
-    val lang = if (Locale.getDefault().language == "en") "en" else "es"
-    return "asset://map/style-dark-$lang.json"
+/** Place names in Spanish unless the phone is set to English. */
+private fun mapLang() = if (Locale.getDefault().language == "en") "en" else "es"
+
+/** The style built on the tiles saved on the phone (see OfflineMaps). */
+private fun offlineStyle(satellite: Boolean) = Style.Builder().fromJson(OfflineMaps.styleJson(mapLang(), satellite))
+
+/** Satellite: imagery with the map's labels on top. Switched by visibility, no reload. */
+private fun applyBasemap(style: Style, satellite: Boolean) {
+    style.getLayer(OfflineMaps.SATELLITE_LAYER)?.setProperties(visibility(if (satellite) Property.VISIBLE else Property.NONE))
+    for (id in OfflineMaps.baseLayers) {
+        style.getLayer(id)?.setProperties(visibility(if (satellite) Property.NONE else Property.VISIBLE))
+    }
 }
 
 private const val TEAM_SOURCE = "team"
@@ -159,6 +176,12 @@ fun MapScreen(onOpenTeam: () -> Unit) {
     var style by remember { mutableStateOf<Style?>(null) }
     var permitted by remember { mutableStateOf(hasLocationPermission(context)) }
     var myLocation by remember { mutableStateOf<Location?>(null) }
+    var satellite by remember { mutableStateOf(OfflineMaps.satelliteView) }
+    // Whether the area in view is saved on the phone; asks to download it when not.
+    var covered by remember { mutableStateOf(true) }
+    var showDownload by remember { mutableStateOf(false) }
+    val mapsVersion by OfflineMaps.version.collectAsState()
+    val download by OfflineMaps.progress.collectAsState()
 
     val askPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         permitted = result[Manifest.permission.ACCESS_FINE_LOCATION] == true
@@ -170,12 +193,31 @@ fun MapScreen(onOpenTeam: () -> Unit) {
         }
         mapView.getMapAsync { m ->
             m.cameraPosition = CameraPosition.Builder().target(START).zoom(8.0).build()
-            m.setStyle(Style.Builder().fromUri(styleUri())) { s ->
+            m.setStyle(offlineStyle(satellite)) { s ->
                 addTeamLayers(s)
                 style = s
             }
+            m.addOnCameraIdleListener {
+                val camera = m.cameraPosition
+                camera.target?.let { covered = OfflineMaps.covered(it.latitude, it.longitude, camera.zoom) }
+            }
             map = m
         }
+    }
+
+    // New tiles were saved (or deleted): reload, so the map shows them.
+    LaunchedEffect(mapsVersion) {
+        val m = map ?: return@LaunchedEffect
+        if (mapsVersion == 0) return@LaunchedEffect
+        m.setStyle(offlineStyle(satellite)) { s ->
+            addTeamLayers(s)
+            style = s
+        }
+        m.cameraPosition.target?.let { covered = OfflineMaps.covered(it.latitude, it.longitude, m.cameraPosition.zoom) }
+    }
+
+    LaunchedEffect(style, satellite) {
+        style?.let { applyBasemap(it, satellite) }
     }
 
     // Turn on the "me" marker once both the style and the permission are there.
@@ -241,9 +283,32 @@ fun MapScreen(onOpenTeam: () -> Unit) {
                     Text(net, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+            Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilledTonalButton(onClick = {
+                    satellite = !satellite
+                    OfflineMaps.satelliteView = satellite
+                }) { Text(stringResource(if (satellite) R.string.map_normal else R.string.map_satellite)) }
+                FilledTonalButton(onClick = { showDownload = true }) { Text(stringResource(R.string.maps_button)) }
+            }
+            if (!covered && download?.running != true) {
+                Surface(
+                    Modifier.padding(top = 8.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    shape = MaterialTheme.shapes.medium,
+                ) {
+                    Row(Modifier.padding(start = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.map_not_downloaded), style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { showDownload = true }) { Text(stringResource(R.string.maps_download)) }
+                    }
+                }
+            }
         }
 
         val phone = Team.me.collectAsState().value
+        if (showDownload) {
+            val visible = map?.projection?.visibleRegion?.latLngBounds?.let { Bounds(it.lonWest, it.latSouth, it.lonEast, it.latNorth) }
+            MapDownloadDialog(visible = visible, me = phone, onDismiss = { showDownload = false })
+        }
         val balloon = sonde.lastOrNull()
         if (balloon != null) {
             BalloonCompass(

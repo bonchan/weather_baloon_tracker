@@ -791,3 +791,12 @@ select:disabled {
 .team-quiet strong {
   color: var(--muted);
 }
+
+/* ---------- basemap switch ---------- */
+
+.basemap-toggle {
+  position: absolute;
+  top: 112px;
+  right: 10px;
+  background: rgba(17, 24, 33, 0.92);
+}

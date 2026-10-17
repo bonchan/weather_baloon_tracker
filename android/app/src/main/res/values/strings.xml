@@ -42,4 +42,27 @@
     <string name="compass_no_heading">No compass: balloon at %1$d° (top = north)</string>
     <string name="net_join">Ask to join</string>
     <string name="net_need_callsign">Set your name first.</string>
+    <string name="cancel">Cancel</string>
+    <string name="close">Close</string>
+    <string name="map_satellite">Satellite</string>
+    <string name="map_normal">Map</string>
+    <string name="maps_button">Maps</string>
+    <string name="map_not_downloaded">This area isn\'t downloaded</string>
+    <string name="maps_title">Offline maps</string>
+    <string name="maps_help">Saves the map and the satellite imagery on the phone, so both work with no internet. Download before going out.</string>
+    <string name="maps_area">Area</string>
+    <string name="maps_area_view">What you see</string>
+    <string name="maps_area_me">%1$d km around me</string>
+    <string name="maps_detail">Detail (max zoom)</string>
+    <string name="maps_detail_help">12 shows towns and main roads; 13–14 add street names and take much longer.</string>
+    <string name="maps_estimate">≈ %1$d tiles (map + satellite)</string>
+    <string name="maps_too_big">Too big (%1$d tiles). Zoom in or lower the detail.</string>
+    <string name="maps_progress">Downloading %1$d / %2$d · %3$s</string>
+    <string name="maps_done">Done: %1$d / %2$d · %3$s</string>
+    <string name="maps_failed">%1$d tiles failed; download again to retry them.</string>
+    <string name="maps_storage">Saved on the phone: %1$s</string>
+    <string name="maps_delete">Delete saved maps</string>
+    <string name="maps_delete_confirm">Yes, delete</string>
+    <string name="maps_cancel">Stop download</string>
+    <string name="maps_download">Download</string>
 </resources>

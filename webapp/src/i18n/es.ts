@@ -141,9 +141,11 @@ export const es: Record<MessageKey, string> = {
 
   'map.loading': 'Cargando mapa…',
   'offline.title': 'Mapa sin conexión',
+  'map.satellite': 'Satélite',
+  'map.normalMap': 'Mapa',
   'offline.saved': '{tiles} teselas · {size}',
   'offline.help':
-    'Con internet, todo lo que mirás del mapa se guarda. Antes de salir, descargá la zona donde vas a estar: después funciona sin internet.',
+    'Con internet, todo lo que mirás del mapa se guarda. Antes de salir, descargá la zona donde vas a estar (mapa y satélite): después funciona sin internet.',
   'offline.noInternet': 'Sin internet: se muestra solo el mapa guardado.',
   'offline.area': 'Zona',
   'offline.areaView': 'Lo que muestra el mapa ahora',

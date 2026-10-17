@@ -22,7 +22,14 @@ import { currentYou, useYou, youPin, type You } from '../you'
 import { OfflineMapPanel } from './OfflineMapPanel'
 import { SondeInfo, type Follow, type Placing } from './SondeInfo'
 import type { Bounds } from './tileMath'
-import { registerTileProtocol, SOURCE_MAX_ZOOM, TILE_URL_TEMPLATE } from './tiles'
+import {
+  registerTileProtocol,
+  SATELLITE_ATTRIBUTION,
+  SATELLITE_MAX_ZOOM,
+  SATELLITE_URL_TEMPLATE,
+  SOURCE_MAX_ZOOM,
+  TILE_URL_TEMPLATE,
+} from './tiles'
 
 type StyleSpecification = Exclude<MapOptions['style'], string | undefined>
 type LayerSpecification = StyleSpecification['layers'][number]
@@ -35,8 +42,46 @@ function initMapLibre() {
   initialized = true
 }
 
+const SATELLITE_LAYER = 'satellite'
+const BASEMAP_KEY = 'sondetracker.basemap.v1'
+
+/** The Protomaps layers, and which of them are labels (kept on top of the satellite view). */
+function basemapLayers(lang: Lang) {
+  const flavor = namedFlavor('dark')
+  const all = layers('protomaps', flavor, { lang }) as LayerSpecification[]
+  const labels = new Set(layers('protomaps', flavor, { lang, labelsOnly: true }).map((l) => l.id))
+  return { all, labels }
+}
+
+/** Satellite: imagery with the map's labels on top; map: the vector map. Done by visibility, no reload. */
+function applyBasemap(map: MapLibreMap, satellite: boolean, lang: Lang) {
+  const { all, labels } = basemapLayers(lang)
+  if (!map.getLayer(SATELLITE_LAYER)) return
+  map.setLayoutProperty(SATELLITE_LAYER, 'visibility', satellite ? 'visible' : 'none')
+  for (const l of all) {
+    if (l.type === 'background' || labels.has(l.id) || !map.getLayer(l.id)) continue
+    map.setLayoutProperty(l.id, 'visibility', satellite ? 'none' : 'visible')
+  }
+}
+
+function loadSatellite(): boolean {
+  try {
+    return localStorage.getItem(BASEMAP_KEY) === 'satellite'
+  } catch {
+    return false
+  }
+}
+
 function buildStyle(lang: Lang): StyleSpecification {
   const origin = window.location.origin
+  const { all } = basemapLayers(lang)
+  const background = all.findIndex((l) => l.type === 'background')
+  const satellite: LayerSpecification = {
+    id: SATELLITE_LAYER,
+    type: 'raster',
+    source: 'satellite',
+    layout: { visibility: 'none' },
+  }
   return {
     version: 8,
     glyphs: `${origin}/map-assets/fonts/{fontstack}/{range}.pbf`,
@@ -48,8 +93,16 @@ function buildStyle(lang: Lang): StyleSpecification {
         maxzoom: SOURCE_MAX_ZOOM,
         attribution: '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> · Protomaps',
       },
+      satellite: {
+        type: 'raster',
+        tiles: [SATELLITE_URL_TEMPLATE],
+        tileSize: 256,
+        maxzoom: SATELLITE_MAX_ZOOM,
+        attribution: SATELLITE_ATTRIBUTION,
+      },
     },
-    layers: layers('protomaps', namedFlavor('dark'), { lang }) as LayerSpecification[],
+    // The imagery sits right above the background, under everything else.
+    layers: [...all.slice(0, background + 1), satellite, ...all.slice(background + 1)],
   }
 }
 
@@ -264,10 +317,12 @@ type MapCanvasProps = {
   cardRef: RefObject<HTMLDivElement | null>
   visible: boolean
   onViewChange: (bounds: Bounds) => void
+  /** Satellite imagery instead of the vector map. */
+  satellite: boolean
 }
 
 /** The MapLibre map itself. Remounted when the language changes so labels switch too. */
-function MapCanvas({ lang, placing, onPlaced, follow, cardRef, visible, onViewChange }: MapCanvasProps) {
+function MapCanvas({ lang, placing, onPlaced, follow, cardRef, visible, onViewChange, satellite }: MapCanvasProps) {
   const { t } = useI18n()
   const container = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
@@ -356,6 +411,10 @@ function MapCanvas({ lang, placing, onPlaced, follow, cardRef, visible, onViewCh
     ;(map.getSource('trackers') as GeoJSONSource).setData(trackersGeoJson(trackers, statusTick))
   }, [trackers, loadedMap, statusTick])
 
+  useEffect(() => {
+    if (loadedMap && loadedMap === mapRef.current) applyBasemap(loadedMap, satellite, lang)
+  }, [satellite, loadedMap, lang])
+
   const active = state.active ? state.tracks[state.active] : undefined
   const last = active?.fixes[active.fixes.length - 1]
   useEffect(() => {
@@ -383,7 +442,17 @@ function MapCanvas({ lang, placing, onPlaced, follow, cardRef, visible, onViewCh
 }
 
 export default function MapView({ visible }: { visible: boolean }) {
-  const { lang } = useI18n()
+  const { lang, t } = useI18n()
+  const [satellite, setSatellite] = useState(loadSatellite)
+  const toggleBasemap = () => {
+    const next = !satellite
+    setSatellite(next)
+    try {
+      localStorage.setItem(BASEMAP_KEY, next ? 'satellite' : 'map')
+    } catch {
+      // not fatal: it just won't be remembered
+    }
+  }
   const [placing, setPlacing] = useState<Placing>(null)
   const [follow, setFollow] = useState<Follow>('sonde')
   const [view, setView] = useState<Bounds | null>(null)
@@ -399,7 +468,11 @@ export default function MapView({ visible }: { visible: boolean }) {
         cardRef={cardRef}
         visible={visible}
         onViewChange={setView}
+        satellite={satellite}
       />
+      <button className="btn btn-small basemap-toggle" onClick={toggleBasemap}>
+        {satellite ? t('map.normalMap') : t('map.satellite')}
+      </button>
       <SondeInfo
         placing={placing}
         onPlace={(target) => setPlacing((p) => (p === target ? null : target))}

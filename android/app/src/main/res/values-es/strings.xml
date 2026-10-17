@@ -41,4 +41,27 @@
     <string name="compass_no_heading">Sin brújula: globo a %1$d° (arriba = norte)</string>
     <string name="net_join">Pedir unirse</string>
     <string name="net_need_callsign">Primero poné tu nombre.</string>
+    <string name="cancel">Cancelar</string>
+    <string name="close">Cerrar</string>
+    <string name="map_satellite">Satélite</string>
+    <string name="map_normal">Mapa</string>
+    <string name="maps_button">Mapas</string>
+    <string name="map_not_downloaded">Esta zona no está descargada</string>
+    <string name="maps_title">Mapas sin conexión</string>
+    <string name="maps_help">Guarda el mapa y la imagen satelital en el teléfono, así los dos funcionan sin internet. Descargá antes de salir.</string>
+    <string name="maps_area">Zona</string>
+    <string name="maps_area_view">Lo que se ve</string>
+    <string name="maps_area_me">%1$d km a mi alrededor</string>
+    <string name="maps_detail">Detalle (zoom máximo)</string>
+    <string name="maps_detail_help">12 muestra pueblos y rutas; 13–14 agregan nombres de calles y tardan mucho más.</string>
+    <string name="maps_estimate">≈ %1$d teselas (mapa + satélite)</string>
+    <string name="maps_too_big">Demasiado grande (%1$d teselas). Acercá el mapa o bajá el detalle.</string>
+    <string name="maps_progress">Descargando %1$d / %2$d · %3$s</string>
+    <string name="maps_done">Listo: %1$d / %2$d · %3$s</string>
+    <string name="maps_failed">Fallaron %1$d teselas; descargá de nuevo para reintentarlas.</string>
+    <string name="maps_storage">Guardado en el teléfono: %1$s</string>
+    <string name="maps_delete">Borrar mapas guardados</string>
+    <string name="maps_delete_confirm">Sí, borrar</string>
+    <string name="maps_cancel">Detener descarga</string>
+    <string name="maps_download">Descargar</string>
 </resources>

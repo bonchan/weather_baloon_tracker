@@ -3,8 +3,8 @@ import { formatBytes } from '../format'
 import { useI18n } from '../i18n'
 import { useLaunchSite } from '../sonde/launch'
 import { clearCachedTiles, storageInfo, type StorageInfo } from './tileCache'
-import { boundsAround, countTiles, type Bounds } from './tileMath'
-import { downloadArea, MAX_DOWNLOAD_TILES, type DownloadProgress } from './tiles'
+import { boundsAround, type Bounds } from './tileMath'
+import { countDownloadTiles, downloadArea, MAX_DOWNLOAD_TILES, type DownloadProgress } from './tiles'
 
 const LAUNCH_RADIUS_KM = 200
 const ZOOM_CHOICES = [10, 11, 12, 13, 14]
@@ -47,7 +47,8 @@ export function OfflineMapPanel({ view }: { view: Bounds | null }) {
   useEffect(() => () => abortRef.current?.abort(), [])
 
   const bounds = area === 'launch' ? boundsAround(launchSite.lat, launchSite.lon, LAUNCH_RADIUS_KM) : view
-  const estimate = bounds ? countTiles(bounds, maxZoom) : 0
+  // The map and the satellite imagery both get saved.
+  const estimate = bounds ? countDownloadTiles(bounds, maxZoom) : 0
   const tooBig = estimate > MAX_DOWNLOAD_TILES
 
   const start = async () => {

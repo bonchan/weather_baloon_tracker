@@ -27,6 +27,9 @@ for (const lang of ['es', 'en']) {
   }
   writeFileSync(join(out, `style-dark-${lang}.json`), JSON.stringify(style))
 }
+// Layers kept on top of the satellite imagery (place names, road names...).
+const labels = basemaps.layers('protomaps', basemaps.namedFlavor('dark'), { labelsOnly: true, lang: 'es' }).map((l) => l.id)
+writeFileSync(join(out, 'label-layers.json'), JSON.stringify(labels))
 cpSync(join(repo, 'webapp', 'public', 'map-assets', 'fonts'), join(out, 'fonts'), { recursive: true })
 cpSync(join(repo, 'webapp', 'public', 'map-assets', 'sprites'), join(out, 'sprites'), { recursive: true })
 console.log(`Map style and assets written to ${out}`)

@@ -79,6 +79,10 @@ The map is OpenStreetMap data ([Protomaps](https://protomaps.com) vector tiles) 
 - **Before going out**, open *Map → Offline map*, pick an area (*what the map shows now* or *200 km around the launch site*) and a detail level, then click *Download area*. Zoom 12 (towns and main roads) is a few thousand tiles; 13–14 add street names and take longer. An interrupted download picks up where it stopped.
 - **With no internet**, the map shows whatever was saved. Fonts and icons ship with the app in `public/map-assets`.
 
+**Satellite view:** the *Satellite* button on the map switches to [Sentinel-2 cloudless](https://s2maps.eu) imagery by EOX (10 m per pixel, CC BY-NC-SA 4.0: free for non-commercial use, including keeping it offline), with the map's place names on top. Downloading an area saves both the map and the imagery, so either view works offline.
+
+**On the phone (Android app):** the map only shows areas saved on the phone. When you look at an area that isn't saved, a banner offers to download it; *Maps* opens the same dialog (what you see, or 200 km around you, detail up to zoom 14). Map and satellite are saved together into two MBTiles files in the app's storage. *Satellite* / *Map* switches the view.
+
 The saved map belongs to the browser profile and the address (`http://localhost:5173`), so use the same browser in the field. *Delete saved map* frees the space.
 
 **You:** distance, bearing and elevation to the sonde are measured from where you are. With a USB GPS that has a fix, that's the GPS (see below). Otherwise click *Place me* and then the map, or *Use my location*: that covers listening from home with a fixed antenna, and is remembered.

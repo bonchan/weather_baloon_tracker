@@ -139,9 +139,11 @@ export const en = {
 
   'map.loading': 'Loading map…',
   'offline.title': 'Offline map',
+  'map.satellite': 'Satellite',
+  'map.normalMap': 'Map',
   'offline.saved': '{tiles} tiles · {size}',
   'offline.help':
-    'While online, every part of the map you look at is saved. Before going out, download the area you will be in: it then works with no internet.',
+    'While online, every part of the map you look at is saved. Before going out, download the area you will be in (map and satellite): it then works with no internet.',
   'offline.noInternet': 'No internet: showing only the saved map.',
   'offline.area': 'Area',
   'offline.areaView': 'What the map shows now',
