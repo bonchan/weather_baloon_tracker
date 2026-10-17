@@ -29,7 +29,7 @@
     <string name="net_last_sent">Your position went out %1$d s ago</string>
     <string name="net_leave">Leave the network</string>
     <string name="net_waiting">Waiting for the base station…</string>
-    <string name="net_waiting_help">Accept the request in the web app's LoRa team panel.</string>
+    <string name="net_waiting_help">Accept the request in the LoRa team panel of the web app.</string>
     <string name="net_ask_again">Ask again</string>
     <string name="net_none">Not on a network</string>
     <string name="net_rejected">The base station turned the request down.</string>
