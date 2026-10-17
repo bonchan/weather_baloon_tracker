@@ -48,7 +48,7 @@
 #define TZ_OFFSET_HOURS   -3     // local time on the screen (Argentina = -3)
 #define LINK_TIMEOUT_MS   3000   // POS lines not fitting in the port this long = nobody reading
 #define LORA_POWER_DBM    22     // SX1262 output; the Wireless Tracker has no external PA
-#define BASE_POS_MS       10000  // how often the base broadcasts its own position
+#define BASE_POS_MS       20000  // how often the base broadcasts its own position (the balloon matters more)
 
 // ---------------- Pins ----------------
 #define VEXT_CTRL   3    // powers GNSS + TFT (HIGH = on)

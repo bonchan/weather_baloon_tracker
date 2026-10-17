@@ -54,7 +54,8 @@ object Team {
         val onNetwork: Boolean get() = net != null && net != Pstk.NO_NET
     }
 
-    private const val SEND_EVERY_MS = 5_000L
+    // Airtime goes to the balloon first (every 2 s from the base); positions can wait.
+    private const val SEND_EVERY_MS = 30_000L
     private const val STALE_FIX_MS = 30_000L
 
     private lateinit var context: Context
@@ -159,7 +160,7 @@ object Team {
         main.postDelayed({
             sendMine()
             scheduleSend()
-        }, SEND_EVERY_MS + Random.nextLong(0, 1000))
+        }, SEND_EVERY_MS + Random.nextLong(0, 3000))
     }
 
     private fun sendMine() {
