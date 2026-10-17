@@ -245,7 +245,7 @@ fun MapScreen(onOpenTeam: () -> Unit) {
 
         val phone = Team.me.collectAsState().value
         val balloon = sonde.lastOrNull()
-        if (phone != null && balloon != null) {
+        if (balloon != null) {
             BalloonCompass(
                 me = phone,
                 balloon = balloon,

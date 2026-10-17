@@ -193,10 +193,7 @@ object Team {
                 _members.value = emptyMap()
                 _base.value = null
             }
-            is Pstk.Clear -> {
-                val last = _sonde.value.lastOrNull()
-                if (msg.serial.isEmpty() || last?.serial == msg.serial) _sonde.value = emptyList()
-            }
+            is Pstk.Clear -> clear(msg)
             is Pstk.Log -> if (msg.error) _node.value = _node.value.copy(lastError = msg.text)
             is Pstk.Heard -> heard(msg)
             else -> Unit
@@ -224,7 +221,14 @@ object Team {
                 val kept = if (last != null && last.serial != inner.serial) emptyList() else track
                 _sonde.value = kept + SondePoint(inner.serial, inner.frame, inner.lat, inner.lon, inner.alt, inner.climb, now)
             }
+            // The base sends CLEAR over LoRa, so it reaches us wrapped in HEARD like everything else.
+            is Pstk.Clear -> clear(inner)
             else -> Unit
         }
+    }
+
+    private fun clear(c: Pstk.Clear) {
+        val last = _sonde.value.lastOrNull()
+        if (c.serial.isEmpty() || last?.serial == c.serial) _sonde.value = emptyList()
     }
 }

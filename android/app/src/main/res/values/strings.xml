@@ -36,6 +36,8 @@
     <string name="net_kicked">The base station removed you from the team (or started a new network). Ask to join again.</string>
     <string name="map_kicked">Removed from the team: open Team to ask again</string>
     <string name="compass_balloon">%1$s · %2$d m up</string>
+    <string name="compass_heard">Last heard %1$d s ago</string>
+    <string name="compass_no_gps">Waiting for your GPS for the arrow and distance</string>
     <string name="compass_by_course">No compass: the arrow follows your direction of travel</string>
     <string name="compass_no_heading">No compass: balloon at %1$d° (top = north)</string>
     <string name="net_join">Ask to join</string>

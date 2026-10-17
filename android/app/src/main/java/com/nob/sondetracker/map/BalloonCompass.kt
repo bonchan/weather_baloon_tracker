@@ -7,6 +7,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
+import android.os.SystemClock
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,6 +20,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,12 +38,15 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.nob.sondetracker.R
 import com.nob.sondetracker.team.Team
+import kotlinx.coroutines.delay
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 
 /** Moving faster than this, the GPS course is a usable heading for phones without a compass. */
 private const val COURSE_MIN_SPEED = 1.5f
+/** The balloon sends a frame every second; this long without one and the position is getting old. */
+private const val BALLOON_STALE_MS = 30_000L
 
 /**
  * Where the top of the phone points, in degrees from magnetic north, while it lies flat.
@@ -113,14 +119,23 @@ private fun formatDistance(m: Float) = if (m < 1000) "${m.toInt()} m" else "%.1f
  * plus the distance. Uses the compass when there is one, else the direction of travel.
  */
 @Composable
-fun BalloonCompass(me: Location, balloon: Team.SondePoint, modifier: Modifier = Modifier) {
+fun BalloonCompass(me: Location?, balloon: Team.SondePoint, modifier: Modifier = Modifier) {
     val azimuth = rememberDeviceAzimuth()
+    var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            now = SystemClock.elapsedRealtime()
+            delay(1000)
+        }
+    }
+    val age = (now - balloon.heardAt).coerceAtLeast(0)
     val result = FloatArray(2)
-    Location.distanceBetween(me.latitude, me.longitude, balloon.lat, balloon.lon, result)
+    if (me != null) Location.distanceBetween(me.latitude, me.longitude, balloon.lat, balloon.lon, result)
     val distance = result[0]
     val bearing = (result[1] + 360f) % 360f
 
     val heading: Float? = when {
+        me == null -> null
         azimuth != null -> {
             // Magnetic to true north, for where we are.
             val declination = GeomagneticField(
@@ -137,7 +152,7 @@ fun BalloonCompass(me: Location, balloon: Team.SondePoint, modifier: Modifier = 
             val arrowColor = if (heading != null) Color(0xFFFF7AD9) else Color(0xFF8796A8)
             // Without a heading the arrow shows the bearing from north (top = north).
             val angle = bearing - (heading ?: 0f)
-            Canvas(Modifier.size(56.dp).rotate(angle)) {
+            if (me != null) Canvas(Modifier.size(56.dp).rotate(angle)) {
                 val w = size.width
                 val h = size.height
                 val arrow = Path().apply {
@@ -150,15 +165,23 @@ fun BalloonCompass(me: Location, balloon: Team.SondePoint, modifier: Modifier = 
                 drawPath(arrow, arrowColor)
                 drawPath(arrow, Color(0xFF0A0E14), style = Stroke(width = 3f))
             }
-            Spacer(Modifier.width(12.dp))
+            if (me != null) Spacer(Modifier.width(12.dp))
             Column {
-                Text(formatDistance(distance), style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Monospace)
+                if (me != null) {
+                    Text(formatDistance(distance), style = MaterialTheme.typography.headlineSmall, fontFamily = FontFamily.Monospace)
+                }
                 Text(
                     stringResource(R.string.compass_balloon, balloon.serial, balloon.alt.toInt()),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Text(
+                    stringResource(R.string.compass_heard, age / 1000),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (age > BALLOON_STALE_MS) Color(0xFFF5B942) else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 val hint = when {
+                    me == null -> stringResource(R.string.compass_no_gps)
                     azimuth != null -> null
                     heading != null -> stringResource(R.string.compass_by_course)
                     else -> stringResource(R.string.compass_no_heading, bearing.toInt())
