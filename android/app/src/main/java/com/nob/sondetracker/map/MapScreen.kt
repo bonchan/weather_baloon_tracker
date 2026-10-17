@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,7 +35,39 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.nob.sondetracker.R
+import com.nob.sondetracker.team.Team
 import kotlinx.coroutines.delay
+import org.maplibre.android.style.expressions.Expression.eq
+import org.maplibre.android.style.expressions.Expression.geometryType
+import org.maplibre.android.style.expressions.Expression.get
+import org.maplibre.android.style.expressions.Expression.literal
+import org.maplibre.android.style.expressions.Expression.toColor
+import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.LineLayer
+import org.maplibre.android.style.layers.PropertyFactory.circleColor
+import org.maplibre.android.style.layers.PropertyFactory.circleRadius
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeColor
+import org.maplibre.android.style.layers.PropertyFactory.circleStrokeWidth
+import org.maplibre.android.style.layers.PropertyFactory.lineCap
+import org.maplibre.android.style.layers.PropertyFactory.lineColor
+import org.maplibre.android.style.layers.PropertyFactory.lineJoin
+import org.maplibre.android.style.layers.PropertyFactory.lineWidth
+import org.maplibre.android.style.layers.PropertyFactory.textAllowOverlap
+import org.maplibre.android.style.layers.PropertyFactory.textAnchor
+import org.maplibre.android.style.layers.PropertyFactory.textColor
+import org.maplibre.android.style.layers.PropertyFactory.textField
+import org.maplibre.android.style.layers.PropertyFactory.textFont
+import org.maplibre.android.style.layers.PropertyFactory.textHaloColor
+import org.maplibre.android.style.layers.PropertyFactory.textHaloWidth
+import org.maplibre.android.style.layers.PropertyFactory.textOffset
+import org.maplibre.android.style.layers.PropertyFactory.textSize
+import org.maplibre.android.style.layers.PropertyValue
+import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.geojson.Feature
+import org.maplibre.geojson.FeatureCollection
+import org.maplibre.geojson.LineString
+import org.maplibre.geojson.Point
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.geometry.LatLng
@@ -62,8 +95,62 @@ private fun styleUri(): String {
     return "asset://map/style-dark-$lang.json"
 }
 
+private const val TEAM_SOURCE = "team"
+private const val SONDE_SOURCE = "sonde"
+
+/** Sources and layers for the team, the base and the balloon, on top of the basemap. */
+private fun addTeamLayers(style: Style) {
+    style.addSource(GeoJsonSource(TEAM_SOURCE))
+    style.addSource(GeoJsonSource(SONDE_SOURCE))
+    val label: Array<PropertyValue<*>> = arrayOf(
+        textField(get("label")),
+        textFont(arrayOf("Noto Sans Medium")),
+        textSize(12f),
+        textAnchor("left"),
+        textOffset(arrayOf(1f, 0f)),
+        textAllowOverlap(true),
+        textColor("#e4ebf3"),
+        textHaloColor("#0a0e14"),
+        textHaloWidth(1.5f),
+    )
+    style.addLayer(
+        LineLayer("sonde-track", SONDE_SOURCE)
+            .withFilter(eq(geometryType(), literal("LineString")))
+            .withProperties(lineColor("#5cc8ff"), lineWidth(3f), lineCap("round"), lineJoin("round")),
+    )
+    style.addLayer(
+        CircleLayer("sonde-dot", SONDE_SOURCE)
+            .withFilter(eq(geometryType(), literal("Point")))
+            .withProperties(circleRadius(8f), circleColor("#ff7ad9"), circleStrokeWidth(2f), circleStrokeColor("#ffffff")),
+    )
+    style.addLayer(SymbolLayer("sonde-label", SONDE_SOURCE).withFilter(eq(geometryType(), literal("Point"))).withProperties(*label))
+    style.addLayer(
+        CircleLayer("team-dot", TEAM_SOURCE)
+            .withProperties(circleRadius(7f), circleColor(toColor(get("color"))), circleStrokeWidth(2f), circleStrokeColor("#0a0e14")),
+    )
+    style.addLayer(SymbolLayer("team-label", TEAM_SOURCE).withProperties(*label))
+}
+
+private fun point(lon: Double, lat: Double, label: String, color: String? = null): Feature =
+    Feature.fromGeometry(Point.fromLngLat(lon, lat)).apply {
+        addStringProperty("label", label)
+        if (color != null) addStringProperty("color", color)
+    }
+
+private fun updateTeamLayers(style: Style, members: Collection<Team.Member>, base: Team.Member?, baseLabel: String, sonde: List<Team.SondePoint>) {
+    val team = members.map { point(it.lon, it.lat, it.id, "#9b8cff") } +
+        listOfNotNull(base?.let { point(it.lon, it.lat, baseLabel, "#3fd18b") })
+    style.getSourceAs<GeoJsonSource>(TEAM_SOURCE)?.setGeoJson(FeatureCollection.fromFeatures(team))
+    val last = sonde.lastOrNull()
+    val balloon = if (last == null) emptyList() else listOf(
+        Feature.fromGeometry(LineString.fromLngLats(sonde.map { Point.fromLngLat(it.lon, it.lat) })),
+        point(last.lon, last.lat, "${last.serial}\n${last.alt.toInt()} m"),
+    )
+    style.getSourceAs<GeoJsonSource>(SONDE_SOURCE)?.setGeoJson(FeatureCollection.fromFeatures(balloon))
+}
+
 @Composable
-fun MapScreen() {
+fun MapScreen(onOpenTeam: () -> Unit) {
     val context = LocalContext.current
     val mapView = rememberMapViewWithLifecycle()
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
@@ -81,7 +168,10 @@ fun MapScreen() {
         }
         mapView.getMapAsync { m ->
             m.cameraPosition = CameraPosition.Builder().target(START).zoom(8.0).build()
-            m.setStyle(Style.Builder().fromUri(styleUri())) { s -> style = s }
+            m.setStyle(Style.Builder().fromUri(styleUri())) { s ->
+                addTeamLayers(s)
+                style = s
+            }
             map = m
         }
     }
@@ -91,6 +181,19 @@ fun MapScreen() {
         val m = map ?: return@LaunchedEffect
         val s = style ?: return@LaunchedEffect
         if (permitted) showMyLocation(context, m, s)
+    }
+
+    LaunchedEffect(permitted) {
+        if (permitted) Team.startLocation()
+    }
+
+    val members by Team.members.collectAsState()
+    val base by Team.base.collectAsState()
+    val sonde by Team.sonde.collectAsState()
+    val node by Team.node.collectAsState()
+    val baseLabel = stringResource(R.string.map_base)
+    LaunchedEffect(style, members, base, sonde) {
+        style?.let { updateTeamLayers(it, members.values, base, baseLabel, sonde) }
     }
 
     // Poll the location layer for the status text; it already tracks the GPS itself.
@@ -126,9 +229,25 @@ fun MapScreen() {
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
                 shape = MaterialTheme.shapes.medium,
             ) {
-                Text(status, Modifier.padding(horizontal = 12.dp, vertical = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                    Text(status, style = MaterialTheme.typography.bodyMedium)
+                    val net = if (node.onNetwork) {
+                        stringResource(R.string.map_net, node.net ?: "", members.size)
+                    } else {
+                        stringResource(R.string.map_no_net)
+                    }
+                    Text(net, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
+
+        ExtendedFloatingActionButton(
+            onClick = onOpenTeam,
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .safeDrawingPadding()
+                .padding(16.dp),
+        ) { Text(stringResource(R.string.team_title)) }
 
         if (permitted) {
             ExtendedFloatingActionButton(

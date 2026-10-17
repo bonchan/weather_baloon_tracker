@@ -97,6 +97,31 @@ Plug a USB GPS into the laptop and the app knows where you are: a yellow marker 
 - Uploading a sketch from the Arduino IDE needs the port: click *Disconnect* in the app first.
 - Positions a companion relays for other trackers (any source other than `SELF`) show on the map labelled with the tracker's id.
 
+## LoRa search team
+
+The base station (this web app plus a Heltec Wireless Tracker on USB) and every chaser's phone (the Android app in `android/` plus a Heltec V3/V4 over Bluetooth) form one LoRa network:
+
+```
+phone ──Bluetooth──▶ Heltec V3/V4 ──LoRa 915 MHz──▶ Wireless Tracker ──USB──▶ web app
+phone ◀─Bluetooth── Heltec V3/V4 ◀─LoRa────────── Wireless Tracker ◀─USB─── web app
+```
+
+- The base station owns the network: a random 4-digit id (shown on its screen and in the web app's **LoRa team** panel). Nodes ignore packets from other networks, so two teams on the same frequency don't mix.
+- **Joining:** in the phone app, open *Team*, search, connect to the node (`SondeTracker-XXXXXX`), set your name and tap *Ask to join*. The request shows up in the web app's *LoRa team* panel: **Accept** or **Reject**. Once accepted, the node keeps the network in flash, so after a reboot it's still on the team.
+- **New network** in the panel starts over: every satellite has to ask again (use it if a node gets lost, or to kick everyone).
+- The phone sends its position every 15 s. The base station broadcasts its own position every 10 s, and the web app sends the balloon every 10 s and relays each team member every 30 s, so satellites out of range of each other still see each other.
+- It's coordination, not security: anyone with the same settings can listen.
+
+Firmware (Arduino IDE, ESP32 core 3.x, libraries listed at the top of each sketch):
+
+| Board | Sketch | Role |
+| --- | --- | --- |
+| Heltec Wireless Tracker | `arduino/heltec_weather_balook_tracker_companion` | base station: USB GPS + LoRa |
+| Heltec WiFi LoRa 32 V3 / V4 | `arduino/heltec_companion` (pick the board at the top) | satellite: Bluetooth ↔ LoRa |
+| ESP32-C3 + NEO-6M | `arduino/esp32c3_weather_balook_tracker_companion` | USB GPS only |
+
+The protocol lives in `arduino/common/SondeTrackerLink.h` and the radio settings in `arduino/common/SondeTrackerLora.h`; every sketch includes them, so a new board only needs its own pins and screen.
+
 ## Antenna
 
 A quarter-wave vertical cut for 403 MHz has a radiator of about **18 cm** (plus 3–4 radials of the same length angled down). Height and a clear horizon matter more than anything else, especially for catching the landing.
