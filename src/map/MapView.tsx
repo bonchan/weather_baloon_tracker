@@ -1,7 +1,6 @@
 import { layers, namedFlavor } from '@protomaps/basemaps'
 import type { Feature, FeatureCollection } from 'geojson'
 import {
-  addProtocol,
   Map as MapLibreMap,
   NavigationControl,
   ScaleControl,
@@ -12,15 +11,14 @@ import {
 import 'maplibre-gl/dist/maplibre-gl.css'
 // MapLibre finds its worker next to its own file, which Vite pre-bundling breaks; hand it a bundled copy.
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
-import { Protocol } from 'pmtiles'
 import { useEffect, useRef, useState } from 'react'
 import { useI18n, type Lang } from '../i18n'
 import { DEFAULT_LAUNCH } from '../sonde/demo'
 import { sondes, useSondes, type SondeState } from '../sonde/store'
+import { OfflineMapPanel } from './OfflineMapPanel'
 import { SondeInfo } from './SondeInfo'
-
-/** Offline basemap: a Protomaps .pmtiles extract you drop into public/maps. */
-const BASEMAP_URL = '/maps/basemap.pmtiles'
+import type { Bounds } from './tileMath'
+import { registerTileProtocol, SOURCE_MAX_ZOOM, TILE_URL_TEMPLATE } from './tiles'
 
 type StyleSpecification = Exclude<MapOptions['style'], string | undefined>
 type LayerSpecification = StyleSpecification['layers'][number]
@@ -29,45 +27,29 @@ let initialized = false
 function initMapLibre() {
   if (initialized) return
   setWorkerUrl(maplibreWorkerUrl)
-  addProtocol('pmtiles', new Protocol().tile)
+  registerTileProtocol()
   initialized = true
 }
 
-/** True when the extract exists; the dev server answers missing files with index.html, so check the magic bytes. */
-async function basemapAvailable(): Promise<boolean> {
-  try {
-    const res = await fetch(BASEMAP_URL, { headers: { Range: 'bytes=0-6' } })
-    if (!res.ok) return false
-    return new TextDecoder().decode((await res.arrayBuffer()).slice(0, 7)) === 'PMTiles'
-  } catch {
-    return false
-  }
-}
-
-function buildStyle(withBasemap: boolean, lang: Lang): StyleSpecification {
+function buildStyle(lang: Lang): StyleSpecification {
   const origin = window.location.origin
   return {
     version: 8,
     glyphs: `${origin}/map-assets/fonts/{fontstack}/{range}.pbf`,
     sprite: `${origin}/map-assets/sprites/dark`,
-    sources: withBasemap
-      ? {
-          protomaps: {
-            type: 'vector',
-            url: `pmtiles://${origin}${BASEMAP_URL}`,
-            attribution: '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> · Protomaps',
-          },
-        }
-      : {},
-    layers: withBasemap
-      ? (layers('protomaps', namedFlavor('dark'), { lang }) as LayerSpecification[])
-      : [{ id: 'background', type: 'background', paint: { 'background-color': '#0b1220' } }],
+    sources: {
+      protomaps: {
+        type: 'vector',
+        tiles: [TILE_URL_TEMPLATE],
+        maxzoom: SOURCE_MAX_ZOOM,
+        attribution: '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> · Protomaps',
+      },
+    },
+    layers: layers('protomaps', namedFlavor('dark'), { lang }) as LayerSpecification[],
   }
 }
 
-type Collection = FeatureCollection
-
-function tracksGeoJson(state: SondeState): Collection {
+function tracksGeoJson(state: SondeState): FeatureCollection {
   return {
     type: 'FeatureCollection',
     features: Object.values(state.tracks).map((t) => ({
@@ -78,7 +60,7 @@ function tracksGeoJson(state: SondeState): Collection {
   }
 }
 
-function sondesGeoJson(state: SondeState): Collection {
+function sondesGeoJson(state: SondeState): FeatureCollection {
   return {
     type: 'FeatureCollection',
     features: Object.values(state.tracks).map((t) => {
@@ -92,7 +74,7 @@ function sondesGeoJson(state: SondeState): Collection {
   }
 }
 
-function stationGeoJson(state: SondeState, label: string): Collection {
+function stationGeoJson(state: SondeState, label: string): FeatureCollection {
   const s = state.station
   const active = state.active ? state.tracks[state.active] : undefined
   const last = active?.fixes[active.fixes.length - 1]
@@ -111,7 +93,7 @@ function stationGeoJson(state: SondeState, label: string): Collection {
 }
 
 function addOverlays(map: MapLibreMap) {
-  const empty: Collection = { type: 'FeatureCollection', features: [] }
+  const empty: FeatureCollection = { type: 'FeatureCollection', features: [] }
   map.addSource('tracks', { type: 'geojson', data: empty })
   map.addSource('sondes', { type: 'geojson', data: empty })
   map.addSource('station', { type: 'geojson', data: empty })
@@ -170,28 +152,30 @@ function addOverlays(map: MapLibreMap) {
 }
 
 type MapCanvasProps = {
-  withBasemap: boolean
   lang: Lang
   placingStation: boolean
   onStationPlaced: () => void
   follow: boolean
   visible: boolean
+  onViewChange: (bounds: Bounds) => void
 }
 
 /** The MapLibre map itself. Remounted when the language changes so labels switch too. */
-function MapCanvas({ withBasemap, lang, placingStation, onStationPlaced, follow, visible }: MapCanvasProps) {
+function MapCanvas({ lang, placingStation, onStationPlaced, follow, visible, onViewChange }: MapCanvasProps) {
   const { t } = useI18n()
   const container = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   // The map instance that has finished loading; a remount (language change) must wait for its own load.
   const [loadedMap, setLoadedMap] = useState<MapLibreMap | null>(null)
   const state = useSondes()
-  // The map is created once; its click handler reads the latest props through refs.
+  // The map is created once; its handlers read the latest props through refs.
   const placingRef = useRef(placingStation)
   const placedRef = useRef(onStationPlaced)
+  const viewRef = useRef(onViewChange)
   useEffect(() => {
     placingRef.current = placingStation
     placedRef.current = onStationPlaced
+    viewRef.current = onViewChange
   })
 
   useEffect(() => {
@@ -199,16 +183,26 @@ function MapCanvas({ withBasemap, lang, placingStation, onStationPlaced, follow,
     const initial = sondes.getState().station ?? DEFAULT_LAUNCH
     const map = new MapLibreMap({
       container: container.current!,
-      style: buildStyle(withBasemap, lang),
+      style: buildStyle(lang),
       center: [initial.lon, initial.lat],
       zoom: 8,
       attributionControl: { compact: true },
     })
     map.addControl(new NavigationControl({ visualizePitch: false }), 'top-right')
     map.addControl(new ScaleControl({ unit: 'metric' }), 'bottom-left')
+    const reportView = () => {
+      const b = map.getBounds()
+      viewRef.current({ west: b.getWest(), south: b.getSouth(), east: b.getEast(), north: b.getNorth() })
+    }
     map.on('load', () => {
       addOverlays(map)
       setLoadedMap(map)
+      reportView()
+    })
+    map.on('moveend', reportView)
+    // Missing tiles while offline are expected; don't flood the console with them.
+    map.on('error', (e) => {
+      if (navigator.onLine) console.warn('Map error', e.error)
     })
     map.on('click', (e) => {
       if (!placingRef.current) return
@@ -221,7 +215,7 @@ function MapCanvas({ withBasemap, lang, placingStation, onStationPlaced, follow,
       map.remove()
       mapRef.current = null
     }
-  }, [withBasemap, lang])
+  }, [lang])
 
   useEffect(() => {
     const map = loadedMap
@@ -245,41 +239,28 @@ function MapCanvas({ withBasemap, lang, placingStation, onStationPlaced, follow,
 }
 
 export default function MapView({ visible }: { visible: boolean }) {
-  const { t, lang } = useI18n()
-  const [basemap, setBasemap] = useState<'checking' | 'yes' | 'no'>('checking')
+  const { lang } = useI18n()
   const [placingStation, setPlacingStation] = useState(false)
   const [follow, setFollow] = useState(true)
-
-  useEffect(() => {
-    void basemapAvailable().then((ok) => setBasemap(ok ? 'yes' : 'no'))
-  }, [])
+  const [view, setView] = useState<Bounds | null>(null)
 
   return (
     <div className="map-view">
-      {basemap === 'checking' ? (
-        <div className="spectrum-empty">{t('map.loading')}</div>
-      ) : (
-        <MapCanvas
-          withBasemap={basemap === 'yes'}
-          lang={lang}
-          placingStation={placingStation}
-          onStationPlaced={() => setPlacingStation(false)}
-          follow={follow}
-          visible={visible}
-        />
-      )}
+      <MapCanvas
+        lang={lang}
+        placingStation={placingStation}
+        onStationPlaced={() => setPlacingStation(false)}
+        follow={follow}
+        visible={visible}
+        onViewChange={setView}
+      />
       <SondeInfo
         placingStation={placingStation}
         onPlaceStation={() => setPlacingStation((p) => !p)}
         follow={follow}
         onFollow={setFollow}
       />
-      {basemap === 'no' && (
-        <div className="map-notice callout">
-          <strong>{t('map.noBasemap')}</strong>
-          <p className="small">{t('map.noBasemapHelp')}</p>
-        </div>
-      )}
+      <OfflineMapPanel view={view} />
     </div>
   )
 }

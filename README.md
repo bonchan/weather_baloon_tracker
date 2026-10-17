@@ -4,7 +4,7 @@ Receive weather balloon radiosondes (400.15–406 MHz) with an RTL-SDR, straight
 
 Current state: **connects to the dongle, live spectrum + waterfall, offline map with station and track display (try *Demo flight*), English/Spanish UI.** The RS41 decoder and logging come next.
 
-**Everything runs offline.** All code, fonts and map icons are in this repo or in `node_modules`. The only thing you prepare at home is the map file (below).
+**Everything runs offline.** All code, fonts and map icons are in this repo or in `node_modules`. The only thing to prepare at home is downloading the map area you need, from inside the app (see below).
 
 ## Run it
 
@@ -61,21 +61,13 @@ RS41 sondes show up as a narrow signal about 10 kHz wide that transmits continuo
 
 ## Offline map
 
-The map uses a [Protomaps](https://protomaps.com) vector extract (`.pmtiles`, one file) rendered by MapLibre. Fonts and icons are already in `public/map-assets` (re-download with `pnpm map:assets` if needed). Without the file, the map still draws the station and sonde tracks on a blank background.
+The map is OpenStreetMap data ([Protomaps](https://protomaps.com) vector tiles) drawn by MapLibre. The app downloads tiles straight from the public [Source Cooperative](https://source.coop/protomaps/openstreetmap) mirror and **stores them inside the browser** (IndexedDB). No extra program and no API key, and it works the same on Windows, Linux and macOS.
 
-Prepare it once, with internet:
+- **While online**, every part of the map you look at is saved automatically.
+- **Before going out**, open *Map → Offline map*, pick an area (*what the map shows now* or *200 km around the station*) and a detail level, then click *Download area*. Zoom 12 (towns and main roads) is a few thousand tiles; 13–14 add street names and take longer. An interrupted download picks up where it stopped.
+- **With no internet**, the map shows whatever was saved. Fonts and icons ship with the app in `public/map-assets`.
 
-1. Download the `pmtiles` tool for your OS from https://github.com/protomaps/go-pmtiles/releases (on Windows, `pmtiles_*_Windows_x86_64.zip`) and unzip `pmtiles.exe`.
-2. Pick a recent daily build from https://maps.protomaps.com/builds (for example `20261015.pmtiles`).
-3. Cut out your area. This box covers Neuquén, Río Negro and the usual eastward drift. Add `--dry-run` first to see the size.
-
-   ```bash
-   pmtiles extract https://build.protomaps.com/20261015.pmtiles public/maps/basemap.pmtiles --bbox=-71.5,-41.5,-66,-36 --maxzoom=13
-   ```
-
-4. Reload the app. The map is now fully offline. `public/maps/*.pmtiles` is git-ignored, so the file stays local.
-
-Lower `--maxzoom` (11 or 12) for a much smaller file; 13 is enough to read street names when chasing a landing.
+The saved map belongs to the browser profile and the address (`http://localhost:5173`), so use the same browser in the field. *Delete saved map* frees the space.
 
 **Station:** click *Place station* and then the map, or *Use my location*. Distance, bearing and elevation to the sonde are measured from there.
 
@@ -97,7 +89,7 @@ pnpm build       # typecheck + production build
 - `src/sdr/controller.ts`: app-level owner of the dongle and the DSP worker. React reads it via `useSyncExternalStore`.
 - `src/dsp/`: runs in a Web Worker. FFT, averaged power spectrum, noise floor, peak, clipping.
 - `src/components/`: UI. `spectrumRenderer.ts` draws the spectrum and waterfall on canvases outside React.
-- `src/map/`: offline MapLibre map (PMTiles basemap, local glyphs/sprites), sonde info card.
+- `src/map/`: MapLibre map, tile protocol with IndexedDB cache and area downloads (`tiles.ts`, `tileCache.ts`), sonde info card.
 - `src/sonde/`: sonde track store (`addFix()` is what the decoder will call) and the demo flight.
 - `src/i18n/`: translations. Add a key to `en.ts` and TypeScript makes you add it to `es.ts` too.
 
@@ -109,3 +101,10 @@ pnpm build       # typecheck + production build
 4. RS41 decoder: frame sync, descrambling, Reed-Solomon, CRC, position/altitude/PTU/serial → `sondes.addFix()`
 5. Landing prediction: offline estimate from the descent rate and the winds measured on the way up
 6. Logging (IndexedDB) and export (CSV / GPX / KML)
+
+## Credits
+
+- Written together with [Claude](https://claude.ai), Anthropic's AI assistant.
+- RTL-SDR driver: [webrtlsdr](https://github.com/jtarrio/webrtlsdr) by Jacobo Tarrío.
+- Map data © [OpenStreetMap](https://openstreetmap.org/copyright) contributors, tiles by [Protomaps](https://protomaps.com), hosted on [Source Cooperative](https://source.coop), drawn with [MapLibre](https://maplibre.org).
+- RS41 format reference: [rs1729/RS](https://github.com/rs1729/RS).

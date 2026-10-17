@@ -23,5 +23,3 @@ dist-ssr
 *.sln
 *.sw?
 
-# Offline basemap extracts (large)
-public/maps/*.pmtiles

@@ -641,14 +641,62 @@ select:disabled {
   padding-top: 10px;
   border-top: 1px solid var(--border);
 }
-.map-notice {
+.offline-panel {
   position: absolute;
   right: 12px;
   bottom: 36px;
-  max-width: 340px;
-  margin: 0;
-  border-color: rgba(245, 185, 66, 0.4);
+  width: 300px;
+  max-height: calc(100% - 140px);
+  overflow-y: auto;
   background: rgba(17, 24, 33, 0.94);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(6px);
+}
+.offline-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+.offline-head .mono {
+  flex: 1;
+  text-align: right;
+}
+.chevron {
+  color: var(--muted);
+}
+.net-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+.net-dot.on {
+  background: var(--ok);
+}
+.net-dot.off {
+  background: var(--warn);
+}
+.offline-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 12px 12px;
+}
+.stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.offline-body progress {
+  width: 100%;
+  accent-color: var(--accent);
 }
 .maplibregl-ctrl-attrib {
   font-size: 10px;

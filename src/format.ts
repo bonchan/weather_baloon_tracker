@@ -25,6 +25,13 @@ export function formatDuration(ms: number): string {
   return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`
 }
 
+export function formatBytes(bytes: number | null): string {
+  if (bytes === null) return '—'
+  if (bytes < 1024 ** 2) return `${Math.round(bytes / 1024)} KB`
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`
+}
+
 export function hex4(n: number): string {
   return n.toString(16).padStart(4, '0')
 }
