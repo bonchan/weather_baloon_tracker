@@ -32,33 +32,18 @@ export type SondeTrack = {
   demo: boolean
 }
 
-export type Station = { lat: number; lon: number; alt: number }
-
 export type SondeState = {
   tracks: Record<string, SondeTrack>
   /** Serial of the sonde heard most recently. */
   active: string | null
-  station: Station | null
-}
-
-const STATION_KEY = 'sondetracker.station.v1'
-
-function loadStation(): Station | null {
-  try {
-    const s = JSON.parse(localStorage.getItem(STATION_KEY) ?? 'null') as Station | null
-    if (s && Number.isFinite(s.lat) && Number.isFinite(s.lon)) return { lat: s.lat, lon: s.lon, alt: s.alt || 0 }
-  } catch {
-    // ignore
-  }
-  return null
 }
 
 /**
- * Received sonde tracks and the receiving station. The decoder feeds addFix();
- * the map and info panels read the state. Persistence to IndexedDB comes later.
+ * Received sonde tracks. The decoder feeds addFix(); the map and info panels read the
+ * state. Persistence to IndexedDB comes later.
  */
 class SondeStore {
-  private state: SondeState = { tracks: {}, active: null, station: loadStation() }
+  private state: SondeState = { tracks: {}, active: null }
   private listeners = new Set<() => void>()
 
   subscribe = (listener: () => void) => {
@@ -84,16 +69,6 @@ class SondeStore {
       : {}
     const active = this.state.active && tracks[this.state.active] ? this.state.active : null
     this.set({ tracks, active })
-  }
-
-  setStation(station: Station | null) {
-    try {
-      if (station) localStorage.setItem(STATION_KEY, JSON.stringify(station))
-      else localStorage.removeItem(STATION_KEY)
-    } catch {
-      // not fatal
-    }
-    this.set({ station })
   }
 
   private set(patch: Partial<SondeState>) {

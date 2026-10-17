@@ -76,20 +76,22 @@ The marker doesn't need to be exact: a sonde up to ±4 kHz off still decodes, an
 The map is OpenStreetMap data ([Protomaps](https://protomaps.com) vector tiles) drawn by MapLibre. The app downloads tiles straight from the public [Source Cooperative](https://source.coop/protomaps/openstreetmap) mirror and **stores them inside the browser** (IndexedDB). No extra program and no API key, and it works the same on Windows, Linux and macOS.
 
 - **While online**, every part of the map you look at is saved automatically.
-- **Before going out**, open *Map → Offline map*, pick an area (*what the map shows now* or *200 km around the station*) and a detail level, then click *Download area*. Zoom 12 (towns and main roads) is a few thousand tiles; 13–14 add street names and take longer. An interrupted download picks up where it stopped.
+- **Before going out**, open *Map → Offline map*, pick an area (*what the map shows now* or *200 km around the launch site*) and a detail level, then click *Download area*. Zoom 12 (towns and main roads) is a few thousand tiles; 13–14 add street names and take longer. An interrupted download picks up where it stopped.
 - **With no internet**, the map shows whatever was saved. Fonts and icons ship with the app in `public/map-assets`.
 
 The saved map belongs to the browser profile and the address (`http://localhost:5173`), so use the same browser in the field. *Delete saved map* frees the space.
 
-**Station:** click *Place station* and then the map, or *Use my location*, or let a USB GPS move it with you (see below). Distance, bearing and elevation to the sonde are measured from there.
+**You:** distance, bearing and elevation to the sonde are measured from where you are. With a USB GPS that has a fix, that's the GPS (see below). Otherwise click *Place me* and then the map, or *Use my location*: that covers listening from home with a fixed antenna, and is remembered.
+
+**Launch site:** where sondes go up, Neuquén Aero unless you move it with *Place launch site* and a click on the map. The demo flight starts there, and the offline map can save the area around it.
 
 ## GPS companions
 
-Plug a USB GPS into the laptop and the app knows where you are: a yellow marker on the map (an arrow pointing where you're driving), and the station moves with you, so distance, bearing and elevation to the sonde stay right during the chase.
+Plug a USB GPS into the laptop and the app knows where you are: a yellow marker on the map (an arrow pointing where you're driving), and distance, bearing and elevation to the sonde are measured from there throughout the chase.
 
 - **Which GPS**: the Sonde Tracker companions in `arduino/` (ESP32-C3 + NEO-6M, Heltec Wireless Tracker), or any USB GPS that sends NMEA GGA/RMC, like a u-blox USB puck. Several can be connected at once.
 - **Connect**: in the sidebar's *GPS companions* panel, click **Connect GPS** and pick the port in the browser's list. This uses Web Serial, so Chrome or Edge on a computer. From then on the app opens it by itself whenever it's plugged in. *Disconnect* stops that until you click *Connect* again, and *Forget* removes the permission.
-- **Station**: *Station follows my GPS* (in the map card) is on whenever a GPS has a fix. Like the sonde's altitude, the height is above the WGS84 ellipsoid when the GPS reports the geoid separation, otherwise above sea level. Placing the station by hand or with *Use my location* turns it off.
+- **You**: while a GPS has a fix, it is where you are, whatever you placed by hand. If the fix drops (a valley, a tunnel), its last position stays, dimmed, until the fix returns or you place yourself somewhere newer. Like the sonde's altitude, your height is above the WGS84 ellipsoid when the GPS reports the geoid separation, otherwise above sea level.
 - **Follow me** in the map card keeps the map centered on you; **Follow both** pans and zooms to keep you and the sonde in view.
 - The panel shows each device's fix, satellites, HDOP, how long since it last sent something, and a companion's latest log lines. Lines that arrive in the first half second after opening were queued in the device while the port was closed, so their positions are skipped.
 - Uploading a sketch from the Arduino IDE needs the port: click *Disconnect* in the app first.
@@ -115,20 +117,21 @@ pnpm build       # typecheck + production build
 - `src/sonde/rs41/`: the RS41 decoder, also in the worker. `demod.ts` (4800 baud GFSK symbol timing and header sync), `frame.ts` (Reed-Solomon, CRC, block parsing), `ptu.ts` (calibration, temperature, humidity), `receiver.ts` (the whole chain, AFC, status). `synthetic.ts` builds and modulates fake frames for the tests.
 - `src/components/`: UI. `spectrumRenderer.ts` draws the spectrum and waterfall on canvases outside React.
 - `src/map/`: MapLibre map, tile protocol with IndexedDB cache and area downloads (`tiles.ts`, `tileCache.ts`), sonde info card.
-- `src/sonde/`: sonde track store (the decoder feeds `addFix()`) and the demo flight.
-- `src/companion/`: GPS companions. `protocol.ts` (the `$PSTK` link from `arduino/common/SondeTrackerLink.h`, plus NMEA GGA/RMC for plain GPSes), `serial.ts` (Web Serial ports), `store.ts` (devices, my position, remote trackers, the station following my fix).
+- `src/sonde/`: sonde track store (the decoder feeds `addFix()`), the launch site (`launch.ts`, where a pre-launch prediction will start) and the demo flight.
+- `src/you.ts`: where you are: the GPS fix, or the pin you placed.
+- `src/companion/`: GPS companions. `protocol.ts` (the `$PSTK` link from `arduino/common/SondeTrackerLink.h`, plus NMEA GGA/RMC for plain GPSes), `serial.ts` (Web Serial ports), `store.ts` (devices, my GPS position, remote trackers).
 - `src/i18n/`: translations. Add a key to `en.ts` and TypeScript makes you add it to `es.ts` too.
 
 ### Roadmap
 
 1. ~~Connect RTL-SDR, live spectrum/waterfall~~
-2. ~~Offline map, station, track display, English/Spanish~~
+2. ~~Offline map, your position, track display, English/Spanish~~
 3. ~~Channelizer: mix the marker to baseband, filter, decimate to 48 kHz, FM-demodulate~~
 4. ~~RS41 decoder: frame sync, descrambling, Reed-Solomon, CRC, position/altitude/serial → `sondes.addFix()`~~
 5. ~~RS41 temperature and humidity (needs the calibration subframe collected over 51 frames)~~
-6. Landing prediction: offline estimate from the descent rate and the winds measured on the way up
+6. Landing prediction: offline estimate from the descent rate and the winds measured on the way up, and a pre-launch prediction from the launch site
 7. Logging (IndexedDB) and export (CSV / GPX / KML)
-8. ~~USB GPS: live position and station from a companion device over Web Serial~~ (firmware in `arduino/`, protocol in `arduino/common/SondeTrackerLink.h`)
+8. ~~USB GPS: live position from a companion device over Web Serial~~ (firmware in `arduino/`, protocol in `arduino/common/SondeTrackerLink.h`)
 
 ## Credits
 

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { formatBytes } from '../format'
 import { useI18n } from '../i18n'
-import { useSondes } from '../sonde/store'
+import { useLaunchSite } from '../sonde/launch'
 import { clearCachedTiles, storageInfo, type StorageInfo } from './tileCache'
 import { boundsAround, countTiles, type Bounds } from './tileMath'
 import { downloadArea, MAX_DOWNLOAD_TILES, type DownloadProgress } from './tiles'
 
-const STATION_RADIUS_KM = 200
+const LAUNCH_RADIUS_KM = 200
 const ZOOM_CHOICES = [10, 11, 12, 13, 14]
 
 function subscribeOnline(cb: () => void) {
@@ -23,10 +23,10 @@ const useOnline = () => useSyncExternalStore(subscribeOnline, () => navigator.on
 /** Shows what's saved for offline use and downloads areas into the browser's storage. */
 export function OfflineMapPanel({ view }: { view: Bounds | null }) {
   const { t } = useI18n()
-  const { station } = useSondes()
+  const launchSite = useLaunchSite()
   const online = useOnline()
   const [open, setOpen] = useState(false)
-  const [area, setArea] = useState<'view' | 'station'>(station ? 'station' : 'view')
+  const [area, setArea] = useState<'view' | 'launch'>('launch')
   const [maxZoom, setMaxZoom] = useState(12)
   const [info, setInfo] = useState<StorageInfo | null>(null)
   const [progress, setProgress] = useState<DownloadProgress | null>(null)
@@ -46,7 +46,7 @@ export function OfflineMapPanel({ view }: { view: Bounds | null }) {
 
   useEffect(() => () => abortRef.current?.abort(), [])
 
-  const bounds = area === 'station' && station ? boundsAround(station.lat, station.lon, STATION_RADIUS_KM) : view
+  const bounds = area === 'launch' ? boundsAround(launchSite.lat, launchSite.lon, LAUNCH_RADIUS_KM) : view
   const estimate = bounds ? countTiles(bounds, maxZoom) : 0
   const tooBig = estimate > MAX_DOWNLOAD_TILES
 
@@ -106,11 +106,9 @@ export function OfflineMapPanel({ view }: { view: Bounds | null }) {
 
           <label className="field">
             <span className="field-label">{t('offline.area')}</span>
-            <select value={area} onChange={(e) => setArea(e.target.value as 'view' | 'station')}>
+            <select value={area} onChange={(e) => setArea(e.target.value as 'view' | 'launch')}>
               <option value="view">{t('offline.areaView')}</option>
-              <option value="station" disabled={!station}>
-                {t('offline.areaStation', { km: STATION_RADIUS_KM })}
-              </option>
+              <option value="launch">{t('offline.areaLaunch', { km: LAUNCH_RADIUS_KM })}</option>
             </select>
           </label>
 

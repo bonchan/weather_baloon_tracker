@@ -1,6 +1,4 @@
 import { useSyncExternalStore } from 'react'
-import { distanceBearing } from '../geo'
-import { sondes } from '../sonde/store'
 import { FIX_OK, NmeaFixer, parseLine, SRC_SELF, type Fix, type PositionReport } from './protocol'
 
 /** Where a device's port stands. `lost`: unplugged while open; `failed`: it would not open. */
@@ -35,7 +33,7 @@ export type CompanionDevice = {
 export type MyPosition = {
   lat: number
   lon: number
-  /** For the station: above the WGS84 ellipsoid when the geoid separation is known, else above sea level. */
+  /** Above the WGS84 ellipsoid when the geoid separation is known, else above sea level. */
   alt?: number
   speed?: number
   course?: number
@@ -62,8 +60,6 @@ export type CompanionState = {
   devices: CompanionDevice[]
   me: MyPosition | null
   trackers: Record<string, RemoteTracker>
-  /** The receiving station moves with my fix. */
-  stationFollowsGps: boolean
 }
 
 const MAX_LOGS = 5
@@ -71,8 +67,6 @@ const MAX_LOGS = 5
 const ME_HOLD_MS = 5_000
 /** A companion's own POS lines win over its forwarded NMEA for this long. */
 const PSTK_HOLD_MS = 5_000
-/** A parked GPS wanders a few meters; not worth moving the station (and redrawing the map) for. */
-const STATION_STEP_M = 5
 
 function ellipsoidHeight(p: PositionReport): number | undefined {
   return p.altMsl === undefined ? undefined : p.altMsl + (p.geoidSep ?? 0)
@@ -83,7 +77,7 @@ function ellipsoidHeight(p: PositionReport): number | undefined {
  * the panel and the map read the state.
  */
 class CompanionStore {
-  private state: CompanionState = { devices: [], me: null, trackers: {}, stationFollowsGps: true }
+  private state: CompanionState = { devices: [], me: null, trackers: {} }
   private listeners = new Set<() => void>()
   private nextId = 1
   private nmea = new Map<number, NmeaFixer>()
@@ -157,11 +151,6 @@ class CompanionStore {
     }
   }
 
-  setStationFollowsGps(on: boolean) {
-    this.set({ stationFollowsGps: on })
-    this.syncStation()
-  }
-
   // ---------------------------------------------------------------------------
 
   private position(device: CompanionDevice, p: PositionReport, protocol: 'pstk' | 'nmea', now: number, backlog: boolean) {
@@ -207,7 +196,6 @@ class CompanionStore {
           lost: false,
         },
       })
-      this.syncStation()
     } else if (mine) {
       this.loseMe(device.id)
     }
@@ -216,18 +204,6 @@ class CompanionStore {
   private loseMe(deviceId: number) {
     const me = this.state.me
     if (me && me.deviceId === deviceId && !me.lost) this.set({ me: { ...me, lost: true } })
-  }
-
-  private syncStation() {
-    const me = this.state.me
-    if (!this.state.stationFollowsGps || !me || me.lost) return
-    const prev = sondes.getState().station
-    const alt = me.alt ?? prev?.alt ?? 0
-    if (prev) {
-      const moved = distanceBearing(prev.lat, prev.lon, me.lat, me.lon).distance
-      if (moved < STATION_STEP_M && Math.abs(prev.alt - alt) < STATION_STEP_M) return
-    }
-    sondes.setStation({ lat: me.lat, lon: me.lon, alt })
   }
 
   private patch(id: number, patch: Partial<CompanionDevice>) {

@@ -1,8 +1,6 @@
 import { offsetMeters } from '../geo'
-import { sondes, type Station } from './store'
-
-/** Neuquén Aero, used when no station is set. */
-export const DEFAULT_LAUNCH: Station = { lat: -38.949, lon: -68.156, alt: 271 }
+import { launch } from './launch'
+import { sondes } from './store'
 
 const SERIAL = 'DEMO-001'
 const BURST_ALTITUDE = 28_000
@@ -28,11 +26,11 @@ export function isDemoRunning() {
   return timer !== undefined
 }
 
-/** Plays a fake ascent, burst and descent from the station so the map can be tried without a sonde. */
+/** Plays a fake ascent, burst and descent from the launch site so the map can be tried without a sonde. */
 export function startDemo(onEnd: () => void) {
   stopDemo()
   sondes.clearTracks(true)
-  const start = sondes.getState().station ?? DEFAULT_LAUNCH
+  const start = launch.getState()
   let { lat, lon } = start
   let alt = start.alt
   let burst = false

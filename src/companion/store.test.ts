@@ -1,5 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { sondes } from '../sonde/store'
+import { afterEach, describe, expect, it } from 'vitest'
 import { sentence } from './protocol'
 import { companions } from './store'
 
@@ -18,11 +17,6 @@ function openDevice() {
   return id
 }
 
-beforeEach(() => {
-  sondes.setStation(null)
-  companions.setStationFollowsGps(true)
-})
-
 afterEach(() => {
   for (const id of added) companions.removeDevice(id)
   added = []
@@ -33,48 +27,29 @@ describe('companion store', () => {
     const id = openDevice()
     companions.handleLine(id, POS, 1000, true)
     expect(companions.getState().me?.deviceId).not.toBe(id)
-    expect(sondes.getState().station).toBeNull()
     expect(device(id).lastSeen).toBe(1000)
   })
 
-  it('puts me and the station at the fix, with the ellipsoid height when the geoid is known', () => {
+  it('puts me at the fix, with the ellipsoid height when the geoid is known', () => {
     const id = openDevice()
     companions.handleLine(id, POS, 1000)
     expect(companions.getState().me).toMatchObject({ lat: -38.978682, lon: -67.841093, alt: 259.9, lost: false })
-    expect(sondes.getState().station).toEqual({ lat: -38.978682, lon: -67.841093, alt: 259.9 })
     expect(device(id)).toMatchObject({ fix: 2, sats: 11, hdop: 1.4, protocol: 'pstk', lastSeen: 1000 })
 
     companions.handleLine(id, pos('SELF,2,9,1.0,-38.95,-68.1,250.0,17.5,12.5,93.0,1792250430,,'), 3000)
-    expect(sondes.getState().station).toEqual({ lat: -38.95, lon: -68.1, alt: 267.5 })
-    expect(companions.getState().me).toMatchObject({ speed: 12.5, course: 93 })
+    expect(companions.getState().me).toMatchObject({ lat: -38.95, lon: -68.1, alt: 267.5, speed: 12.5, course: 93 })
   })
 
-  it('leaves the station alone when the option is off, and when barely moving', () => {
-    const id = openDevice()
-    companions.setStationFollowsGps(false)
-    sondes.setStation({ lat: -38.9, lon: -68.0, alt: 300 })
-    companions.handleLine(id, POS, 1000)
-    expect(sondes.getState().station).toEqual({ lat: -38.9, lon: -68.0, alt: 300 })
-
-    companions.setStationFollowsGps(true)
-    expect(sondes.getState().station).toMatchObject({ lat: -38.978682 })
-    // About 1 m north.
-    companions.handleLine(id, pos('SELF,2,11,1.4,-38.978673,-67.841093,259.9,,0.07,0.0,1792250429,,'), 2000)
-    expect(sondes.getState().station).toMatchObject({ lat: -38.978682 })
-    expect(companions.getState().me).toMatchObject({ lat: -38.978673 })
-  })
-
-  it('marks me lost when the fix or the device goes, and keeps the station there', () => {
+  it('marks me lost when the fix or the device goes, keeping the last position', () => {
     const id = openDevice()
     companions.handleLine(id, POS, 1000)
     companions.handleLine(id, pos('SELF,1,2,,,,,,,,,,'), 2000)
-    expect(companions.getState().me).toMatchObject({ lat: -38.978682, lost: true })
+    expect(companions.getState().me).toMatchObject({ lat: -38.978682, lost: true, receivedAt: 1000 })
     expect(device(id).fix).toBe(1)
     companions.handleLine(id, POS, 3000)
     expect(companions.getState().me?.lost).toBe(false)
     companions.setLink(id, 'lost')
-    expect(companions.getState().me?.lost).toBe(true)
-    expect(sondes.getState().station).toMatchObject({ lat: -38.978682 })
+    expect(companions.getState().me).toMatchObject({ lat: -38.978682, lost: true })
   })
 
   it('reads a plain NMEA GPS from GGA + RMC', () => {
@@ -83,7 +58,7 @@ describe('companion store', () => {
     companions.handleLine(id, GGA, 1000)
     expect(device(id)).toMatchObject({ protocol: 'nmea', fix: 2, sats: 11, hdop: 1.35 })
     expect(companions.getState().me?.lat).toBeCloseTo(-38.978682, 6)
-    expect(sondes.getState().station?.alt).toBe(259.9)
+    expect(companions.getState().me?.alt).toBe(259.9)
   })
 
   it("ignores a companion's forwarded NMEA", () => {

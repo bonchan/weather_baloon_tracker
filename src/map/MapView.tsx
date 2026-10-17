@@ -13,12 +13,13 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 // MapLibre finds its worker next to its own file, which Vite pre-bundling breaks; hand it a bundled copy.
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import { useEffect, useRef, useState, type RefObject } from 'react'
-import { companions, useCompanions, type MyPosition, type RemoteTracker } from '../companion/store'
+import { companions, useCompanions, type RemoteTracker } from '../companion/store'
 import { useI18n, type Lang } from '../i18n'
-import { DEFAULT_LAUNCH } from '../sonde/demo'
-import { sondes, useSondes, type SondeState } from '../sonde/store'
+import { launch, useLaunchSite, type LaunchSite } from '../sonde/launch'
+import { useSondes, type SondeState } from '../sonde/store'
+import { currentYou, useYou, youPin, type You } from '../you'
 import { OfflineMapPanel } from './OfflineMapPanel'
-import { SondeInfo, type Follow } from './SondeInfo'
+import { SondeInfo, type Follow, type Placing } from './SondeInfo'
 import type { Bounds } from './tileMath'
 import { registerTileProtocol, SOURCE_MAX_ZOOM, TILE_URL_TEMPLATE } from './tiles'
 
@@ -76,42 +77,36 @@ function sondesGeoJson(state: SondeState): FeatureCollection {
   }
 }
 
-/** `onMe`: the station follows my GPS, so the "me" marker already shows where it is. */
-function stationGeoJson(state: SondeState, label: string, onMe: boolean): FeatureCollection {
-  const s = state.station
+/** Below this (m/s) the GPS course is mostly noise, so I'm a dot instead of an arrow. */
+const MOVING_SPEED = 1
+
+/** Me, labelled, plus a dashed line to the active sonde. */
+function youGeoJson(you: You | null, state: SondeState, label: string): FeatureCollection {
+  if (!you) return { type: 'FeatureCollection', features: [] }
   const active = state.active ? state.tracks[state.active] : undefined
   const last = active?.fixes[active.fixes.length - 1]
-  const features: Feature[] = []
-  if (s) {
-    if (!onMe) {
-      features.push({ type: 'Feature', properties: { label }, geometry: { type: 'Point', coordinates: [s.lon, s.lat] } })
-    }
-    if (last) {
-      features.push({
-        type: 'Feature',
-        properties: {},
-        geometry: { type: 'LineString', coordinates: [[s.lon, s.lat], [last.lon, last.lat]] },
-      })
-    }
+  const moving = you.speed !== undefined && you.speed >= MOVING_SPEED && you.course !== undefined
+  const features: Feature[] = [
+    {
+      type: 'Feature',
+      properties: { label, moving, course: you.course ?? 0, stale: you.stale },
+      geometry: { type: 'Point', coordinates: [you.lon, you.lat] },
+    },
+  ]
+  if (last) {
+    features.push({
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: [[you.lon, you.lat], [last.lon, last.lat]] },
+    })
   }
   return { type: 'FeatureCollection', features }
 }
 
-/** Below this (m/s) the GPS course is mostly noise, so "me" is a dot instead of an arrow. */
-const MOVING_SPEED = 1
-
-function meGeoJson(me: MyPosition | null): FeatureCollection {
-  if (!me) return { type: 'FeatureCollection', features: [] }
-  const moving = me.speed !== undefined && me.speed >= MOVING_SPEED && me.course !== undefined
+function launchGeoJson(site: LaunchSite, label: string): FeatureCollection {
   return {
     type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        properties: { moving, course: me.course ?? 0, lost: me.lost },
-        geometry: { type: 'Point', coordinates: [me.lon, me.lat] },
-      },
-    ],
+    features: [{ type: 'Feature', properties: { label }, geometry: { type: 'Point', coordinates: [site.lon, site.lat] } }],
   }
 }
 
@@ -126,8 +121,8 @@ function trackersGeoJson(trackers: Record<string, RemoteTracker>): FeatureCollec
   }
 }
 
-/** The "me" marker, drawn at 2x: an arrow pointing north for the map to turn by course, or a dot. */
-function meImage(arrow: boolean): ImageData {
+/** My marker, drawn at 2x: an arrow pointing north for the map to turn by course, or a dot. */
+function youImage(arrow: boolean): ImageData {
   const size = 44
   const canvas = document.createElement('canvas')
   canvas.width = canvas.height = size
@@ -158,15 +153,15 @@ function addOverlays(map: MapLibreMap) {
   const empty: FeatureCollection = { type: 'FeatureCollection', features: [] }
   map.addSource('tracks', { type: 'geojson', data: empty })
   map.addSource('sondes', { type: 'geojson', data: empty })
-  map.addSource('station', { type: 'geojson', data: empty })
+  map.addSource('launch', { type: 'geojson', data: empty })
   map.addSource('trackers', { type: 'geojson', data: empty })
-  map.addSource('me', { type: 'geojson', data: empty })
-  map.addImage('me-arrow', meImage(true), { pixelRatio: 2 })
-  map.addImage('me-dot', meImage(false), { pixelRatio: 2 })
+  map.addSource('you', { type: 'geojson', data: empty })
+  map.addImage('you-arrow', youImage(true), { pixelRatio: 2 })
+  map.addImage('you-dot', youImage(false), { pixelRatio: 2 })
   map.addLayer({
-    id: 'station-link',
+    id: 'you-link',
     type: 'line',
-    source: 'station',
+    source: 'you',
     filter: ['==', ['geometry-type'], 'LineString'],
     paint: { 'line-color': '#ffffff', 'line-opacity': 0.35, 'line-width': 1.2, 'line-dasharray': [3, 3] },
   })
@@ -181,11 +176,10 @@ function addOverlays(map: MapLibreMap) {
     },
   })
   map.addLayer({
-    id: 'station',
+    id: 'launch',
     type: 'circle',
-    source: 'station',
-    filter: ['==', ['geometry-type'], 'Point'],
-    paint: { 'circle-radius': 6, 'circle-color': '#3fd18b', 'circle-stroke-width': 2, 'circle-stroke-color': '#0a0e14' },
+    source: 'launch',
+    paint: { 'circle-radius': 4, 'circle-color': '#3fd18b', 'circle-stroke-width': 2, 'circle-stroke-color': '#0a0e14' },
   })
   map.addLayer({
     id: 'trackers',
@@ -213,14 +207,7 @@ function addOverlays(map: MapLibreMap) {
   }
   const halo = { 'text-color': '#e4ebf3', 'text-halo-color': '#0a0e14', 'text-halo-width': 1.5 }
   map.addLayer({ id: 'sonde-labels', type: 'symbol', source: 'sondes', layout: { ...label, 'text-field': ['get', 'label'] }, paint: halo })
-  map.addLayer({
-    id: 'station-label',
-    type: 'symbol',
-    source: 'station',
-    filter: ['==', ['geometry-type'], 'Point'],
-    layout: { ...label, 'text-field': ['get', 'label'] },
-    paint: halo,
-  })
+  map.addLayer({ id: 'launch-label', type: 'symbol', source: 'launch', layout: { ...label, 'text-field': ['get', 'label'] }, paint: halo })
   map.addLayer({
     id: 'tracker-labels',
     type: 'symbol',
@@ -229,17 +216,21 @@ function addOverlays(map: MapLibreMap) {
     paint: halo,
   })
   map.addLayer({
-    id: 'me',
+    id: 'you',
     type: 'symbol',
-    source: 'me',
+    source: 'you',
+    filter: ['==', ['geometry-type'], 'Point'],
     layout: {
-      'icon-image': ['case', ['get', 'moving'], 'me-arrow', 'me-dot'],
+      ...label,
+      'text-field': ['get', 'label'],
+      'text-offset': [1.3, 0],
+      'icon-image': ['case', ['get', 'moving'], 'you-arrow', 'you-dot'],
       'icon-rotate': ['get', 'course'],
       'icon-rotation-alignment': 'map',
       'icon-allow-overlap': true,
       'icon-ignore-placement': true,
     },
-    paint: { 'icon-opacity': ['case', ['get', 'lost'], 0.4, 1] },
+    paint: { ...halo, 'icon-opacity': ['case', ['get', 'stale'], 0.4, 1] },
   })
 }
 
@@ -261,8 +252,8 @@ function fitPadding(map: MapLibreMap, card: HTMLElement | null) {
 
 type MapCanvasProps = {
   lang: Lang
-  placingStation: boolean
-  onStationPlaced: () => void
+  placing: Placing
+  onPlaced: () => void
   follow: Follow
   /** The info card floating over the map. */
   cardRef: RefObject<HTMLDivElement | null>
@@ -271,27 +262,29 @@ type MapCanvasProps = {
 }
 
 /** The MapLibre map itself. Remounted when the language changes so labels switch too. */
-function MapCanvas({ lang, placingStation, onStationPlaced, follow, cardRef, visible, onViewChange }: MapCanvasProps) {
+function MapCanvas({ lang, placing, onPlaced, follow, cardRef, visible, onViewChange }: MapCanvasProps) {
   const { t } = useI18n()
   const container = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   // The map instance that has finished loading; a remount (language change) must wait for its own load.
   const [loadedMap, setLoadedMap] = useState<MapLibreMap | null>(null)
   const state = useSondes()
-  const { me, trackers, stationFollowsGps } = useCompanions()
+  const { trackers } = useCompanions()
+  const you = useYou()
+  const launchSite = useLaunchSite()
   // The map is created once; its handlers read the latest props through refs.
-  const placingRef = useRef(placingStation)
-  const placedRef = useRef(onStationPlaced)
+  const placingRef = useRef(placing)
+  const placedRef = useRef(onPlaced)
   const viewRef = useRef(onViewChange)
   useEffect(() => {
-    placingRef.current = placingStation
-    placedRef.current = onStationPlaced
+    placingRef.current = placing
+    placedRef.current = onPlaced
     viewRef.current = onViewChange
   })
 
   useEffect(() => {
     initMapLibre()
-    const initial = sondes.getState().station ?? DEFAULT_LAUNCH
+    const initial = currentYou(companions.getState().me, youPin.getState()) ?? launch.getState()
     const map = new MapLibreMap({
       container: container.current!,
       style: buildStyle(lang),
@@ -316,11 +309,13 @@ function MapCanvas({ lang, placingStation, onStationPlaced, follow, cardRef, vis
       if (navigator.onLine) console.warn('Map error', e.error)
     })
     map.on('click', (e) => {
-      if (!placingRef.current) return
-      const prev = sondes.getState().station
-      // Placed by hand, so it should stay there.
-      companions.setStationFollowsGps(false)
-      sondes.setStation({ lat: e.lngLat.lat, lon: e.lngLat.lng, alt: prev?.alt ?? DEFAULT_LAUNCH.alt })
+      const target = placingRef.current
+      if (!target) return
+      const { lat, lng: lon } = e.lngLat
+      // A click has no ground height; keep the one already known.
+      const site = launch.getState()
+      if (target === 'you') youPin.set({ lat, lon, alt: youPin.getState()?.alt ?? site.alt, placedAt: Date.now() })
+      else launch.set({ lat, lon, alt: site.alt })
       placedRef.current()
     })
     mapRef.current = map
@@ -330,21 +325,25 @@ function MapCanvas({ lang, placingStation, onStationPlaced, follow, cardRef, vis
     }
   }, [lang])
 
-  const stationOnMe = stationFollowsGps && me !== null
   useEffect(() => {
     const map = loadedMap
     if (!map || map !== mapRef.current) return
     ;(map.getSource('tracks') as GeoJSONSource).setData(tracksGeoJson(state))
     ;(map.getSource('sondes') as GeoJSONSource).setData(sondesGeoJson(state))
-    ;(map.getSource('station') as GeoJSONSource).setData(stationGeoJson(state, t('map.station'), stationOnMe))
-  }, [state, loadedMap, t, stationOnMe])
+    ;(map.getSource('you') as GeoJSONSource).setData(youGeoJson(you, state, t('map.youLabel')))
+  }, [state, you, loadedMap, t])
 
   useEffect(() => {
     const map = loadedMap
     if (!map || map !== mapRef.current) return
-    ;(map.getSource('me') as GeoJSONSource).setData(meGeoJson(me))
+    ;(map.getSource('launch') as GeoJSONSource).setData(launchGeoJson(launchSite, t('map.launchSite')))
+  }, [launchSite, loadedMap, t])
+
+  useEffect(() => {
+    const map = loadedMap
+    if (!map || map !== mapRef.current) return
     ;(map.getSource('trackers') as GeoJSONSource).setData(trackersGeoJson(trackers))
-  }, [me, trackers, loadedMap])
+  }, [trackers, loadedMap])
 
   const active = state.active ? state.tracks[state.active] : undefined
   const last = active?.fixes[active.fixes.length - 1]
@@ -352,29 +351,29 @@ function MapCanvas({ lang, placingStation, onStationPlaced, follow, cardRef, vis
     if (follow === 'sonde' && last && mapRef.current) mapRef.current.easeTo({ center: [last.lon, last.lat], duration: 300 })
   }, [follow, last])
   useEffect(() => {
-    if (follow === 'me' && me && mapRef.current) mapRef.current.easeTo({ center: [me.lon, me.lat], duration: 300 })
-  }, [follow, me])
+    if (follow === 'me' && you && mapRef.current) mapRef.current.easeTo({ center: [you.lon, you.lat], duration: 300 })
+  }, [follow, you])
   useEffect(() => {
     const map = mapRef.current
-    if (follow !== 'both' || !map || !me) return
+    if (follow !== 'both' || !map || !you) return
     if (!last) {
-      map.easeTo({ center: [me.lon, me.lat], duration: 300 })
+      map.easeTo({ center: [you.lon, you.lat], duration: 300 })
       return
     }
-    const bounds = new LngLatBounds([me.lon, me.lat], [me.lon, me.lat]).extend([last.lon, last.lat])
+    const bounds = new LngLatBounds([you.lon, you.lat], [you.lon, you.lat]).extend([last.lon, last.lat])
     map.fitBounds(bounds, { padding: fitPadding(map, cardRef.current), maxZoom: BOTH_MAX_ZOOM, duration: 300 })
-  }, [follow, me, last, cardRef])
+  }, [follow, you, last, cardRef])
 
   useEffect(() => {
     if (visible) mapRef.current?.resize()
   }, [visible])
 
-  return <div ref={container} className={`map-canvas ${placingStation ? 'placing' : ''}`} />
+  return <div ref={container} className={`map-canvas ${placing ? 'placing' : ''}`} />
 }
 
 export default function MapView({ visible }: { visible: boolean }) {
   const { lang } = useI18n()
-  const [placingStation, setPlacingStation] = useState(false)
+  const [placing, setPlacing] = useState<Placing>(null)
   const [follow, setFollow] = useState<Follow>('sonde')
   const [view, setView] = useState<Bounds | null>(null)
   const cardRef = useRef<HTMLDivElement>(null)
@@ -383,16 +382,16 @@ export default function MapView({ visible }: { visible: boolean }) {
     <div className="map-view">
       <MapCanvas
         lang={lang}
-        placingStation={placingStation}
-        onStationPlaced={() => setPlacingStation(false)}
+        placing={placing}
+        onPlaced={() => setPlacing(null)}
         follow={follow}
         cardRef={cardRef}
         visible={visible}
         onViewChange={setView}
       />
       <SondeInfo
-        placingStation={placingStation}
-        onPlaceStation={() => setPlacingStation((p) => !p)}
+        placing={placing}
+        onPlace={(target) => setPlacing((p) => (p === target ? null : target))}
         follow={follow}
         onFollow={setFollow}
         cardRef={cardRef}
