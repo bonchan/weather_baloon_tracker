@@ -126,7 +126,8 @@ class Sentence : public Print {
   }
 
   // Sends nothing and returns false when the port has no room (the host isn't reading),
-  // so a sketch never blocks on it and lines never get cut in half.
+  // so a sketch never blocks on it and lines never get cut in half. The port's TX buffer
+  // must hold MAX_LINE bytes (ESP32-S3: USB Mode "Hardware CDC and JTAG", not TinyUSB).
   bool send(Print &out) {
     static const char hex[] = "0123456789ABCDEF";
     buf_[len_] = '*';
@@ -225,7 +226,8 @@ class CommandReader {
 };
 
 // Passes a GPS module's raw NMEA through to the app one whole sentence at a time, so it
-// never gets mixed into a $PSTK line. Sentences that don't fit in the port are dropped.
+// never gets mixed into a $PSTK line. A sentence is dropped unless the port also has room
+// for a $PSTK line after it, so NMEA never crowds out a POS.
 class NmeaForwarder {
  public:
   void feed(char c, Print &out) {
@@ -236,7 +238,8 @@ class NmeaForwarder {
     if (len_ == sizeof(buf_)) bad_ = true;
     else buf_[len_++] = c;
     if (c != '\n') return;
-    if (!bad_ && buf_[0] == '$' && out.availableForWrite() >= (int)len_) out.write((const uint8_t *)buf_, len_);
+    if (!bad_ && buf_[0] == '$' && out.availableForWrite() >= (int)(len_ + MAX_LINE))
+      out.write((const uint8_t *)buf_, len_);
     len_ = 0;
     bad_ = false;
   }

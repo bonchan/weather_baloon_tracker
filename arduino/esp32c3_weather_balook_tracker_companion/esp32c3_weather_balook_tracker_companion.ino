@@ -19,8 +19,7 @@
 //
 // Try it from a serial monitor: type $PSTK,HELLO and it answers with its $PSTK,ID line.
 
-#include <TinyGPSPlus.h>
-#include "../common/SondeTrackerLink.h"
+#include "../common/SondeTrackerGps.h"
 
 #if defined(CONFIG_IDF_TARGET_ESP32C3) && defined(ARDUINO_USB_CDC_ON_BOOT) && !ARDUINO_USB_CDC_ON_BOOT
 #error "Set Tools > USB CDC On Boot to Enabled, so Serial is the USB port"
@@ -29,10 +28,7 @@
 // ---------------- Settings ----------------
 #define DEVICE_NAME       "GPS-USB-C3"
 #define FIRMWARE_VERSION  "1.0"
-#define NMEA_PASSTHROUGH  1      // also send the module's raw NMEA to the computer
-#define GPS_SILENT_MS     3000   // no valid sentence for this long = no GPS
-#define FIX_MAX_AGE_MS    3000   // older position = fix lost
-#define POS_FALLBACK_MS   1500   // POS at least this often, even when the module is silent
+#define NMEA_PASSTHROUGH  true   // also send the module's raw NMEA to the computer
 
 // ---------------- Pins ----------------
 #define GPS_RX_PIN     4    // ESP receives here  <- NEO-6M TX
@@ -41,52 +37,11 @@
 #define LED_PIN        8    // blue LED
 #define LED_ACTIVE_LOW 1    // Super Mini LED is lit when the pin is LOW
 
-TinyGPSPlus gps;
 HardwareSerial GPSSerial(1);
-TinyGPSCustom geoidSepGP(gps, "GPGGA", 11);   // TinyGPSPlus doesn't parse it
-TinyGPSCustom geoidSepGN(gps, "GNGGA", 11);   // multi-GNSS modules (NEO-M8N...)
+stk::GpsReporter gps(NMEA_PASSTHROUGH);
 stk::CommandReader commands;
-stk::NmeaForwarder nmea;
 
-bool gpsTalking = false;
-unsigned long lastGpsSentence = 0, lastPosSent = 0, bootFlashUntil = 0;
-
-// ---------------- GPS ----------------
-stk::Fix fixState() {
-  if (!gpsTalking || millis() - lastGpsSentence > GPS_SILENT_MS) return stk::FIX_NO_GPS;
-  if (gps.location.isValid() && gps.location.age() < FIX_MAX_AGE_MS) return stk::FIX_OK;
-  return stk::FIX_SEARCHING;
-}
-
-bool gpsTimeValid() {
-  return gps.date.isValid() && gps.time.isValid() && gps.date.year() >= 2020;
-}
-
-bool fresh(TinyGPSDecimal &v) { return v.isValid() && v.age() < FIX_MAX_AGE_MS; }
-
-void sendPosition() {
-  stk::Position p;
-  p.fix = fixState();
-  int sats = gps.satellites.isValid() ? gps.satellites.value() : -1;   // reading clears isUpdated()
-  if (p.fix != stk::FIX_NO_GPS) {
-    p.sats = sats;
-    if (gps.hdop.isValid()) p.hdop = gps.hdop.hdop();
-    if (gpsTimeValid())
-      p.utc = stk::unixTime(gps.date.year(), gps.date.month(), gps.date.day(),
-                            gps.time.hour(), gps.time.minute(), gps.time.second());
-  }
-  if (p.fix == stk::FIX_OK) {
-    p.lat = gps.location.lat();
-    p.lon = gps.location.lng();
-    if (fresh(gps.altitude)) p.altMsl = gps.altitude.meters();
-    if (fresh(gps.speed)) p.speed = gps.speed.mps();
-    if (fresh(gps.course)) p.course = gps.course.deg();
-    TinyGPSCustom &sep = geoidSepGN.age() < geoidSepGP.age() ? geoidSepGN : geoidSepGP;
-    if (sep.isValid() && sep.age() < FIX_MAX_AGE_MS && sep.value()[0]) p.geoidSep = atof(sep.value());
-  }
-  stk::sendPosition(Serial, p);
-  lastPosSent = millis();
-}
+unsigned long bootFlashUntil = 0;
 
 // ---------------- App commands ----------------
 void sendId() {
@@ -107,7 +62,7 @@ void updateLed() {
   if (now < bootFlashUntil) {
     on = (now / 60) % 2 == 0;                   // ~8 Hz
   } else {
-    switch (fixState()) {
+    switch (gps.fix()) {
       case stk::FIX_NO_GPS: {
         unsigned long t = now % 2000;
         on = t < 100 || (t >= 250 && t < 350);  // double blink
@@ -126,6 +81,7 @@ void updateLed() {
 
 // ---------------- Setup / loop ----------------
 void setup() {
+  Serial.setTxBufferSize(1024);   // before begin(); room for NMEA bursts
   Serial.begin(stk::LINK_BAUD);
 
   pinMode(LED_PIN, OUTPUT);
@@ -139,20 +95,7 @@ void setup() {
 }
 
 void loop() {
-  while (GPSSerial.available()) {
-    char c = GPSSerial.read();
-#if NMEA_PASSTHROUGH
-    nmea.feed(c, Serial);
-#endif
-    if (gps.encode(c)) {   // a sentence with a good checksum
-      gpsTalking = true;
-      lastGpsSentence = millis();
-    }
-  }
-
-  // Each GGA (once per fix, with sats/hdop/altitude) sets satellites.isUpdated()
-  if (gps.satellites.isUpdated() || millis() - lastPosSent >= POS_FALLBACK_MS) sendPosition();
-
+  gps.poll(GPSSerial, Serial);
   handleCommands();
   updateLed();
 }
