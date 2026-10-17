@@ -1,6 +1,10 @@
+import type { SondeFix } from '../sonde/store'
+
 /** Main thread → DSP worker. */
 export type DspInMessage =
   | { type: 'configure'; fftSize: number; framesPerSecond: number }
+  /** Where the sonde decoder listens (the marker), absolute Hz. The tuning comes with each IQ block. */
+  | { type: 'decoder'; frequency: number | null }
   | { type: 'reset' }
   | { type: 'iq'; data: ArrayBuffer; centerFrequency: number; sampleRate: number }
 
@@ -22,5 +26,24 @@ export type SpectrumFrame = {
   blocksProcessed: number
 }
 
+export type DecoderState = 'no-marker' | 'out-of-band' | 'searching' | 'sync' | 'locked'
+
+export type DecoderStatus = {
+  /** sync: headers heard but frames fail; locked: good frames coming in. */
+  state: DecoderState
+  goodFrames: number
+  badFrames: number
+  /** From the last good frame. */
+  serial: string | null
+  frame: number | null
+  /** Whether the last good frame had a GPS position. */
+  gpsFix: boolean
+  /** Where the sonde is relative to the marker, Hz, once a frame decoded. */
+  offset: number | null
+}
+
 /** DSP worker → main thread. */
-export type DspOutMessage = SpectrumFrame
+export type DspOutMessage =
+  | SpectrumFrame
+  | { type: 'sonde-fix'; fix: SondeFix }
+  | { type: 'decoder'; status: DecoderStatus }

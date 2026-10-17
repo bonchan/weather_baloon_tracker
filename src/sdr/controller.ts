@@ -1,4 +1,5 @@
-import type { DspInMessage, DspOutMessage, SpectrumFrame } from '../dsp/messages'
+import type { DecoderStatus, DspInMessage, DspOutMessage, SpectrumFrame } from '../dsp/messages'
+import { sondes } from '../sonde/store'
 import {
   deviceLabel,
   findAuthorizedDevice,
@@ -34,10 +35,11 @@ export type SdrState = {
   authorizedDevice: string | null
   settings: SdrSettings
   fftSize: number
-  /** Frequency picked on the spectrum, Hz. Later this is where the decoder listens. */
+  /** Frequency picked on the spectrum, Hz. The RS41 decoder listens here. */
   marker: number | null
   stats: StreamStats | null
   signal: SignalStats | null
+  decoder: DecoderStatus | null
   problem: SdrProblem | null
 }
 
@@ -124,6 +126,7 @@ export class SdrController {
       authorizedDevice: null,
       stats: null,
       signal: null,
+      decoder: null,
       problem: null,
       ...loadPersisted(),
     }
@@ -181,7 +184,7 @@ export class SdrController {
   async disconnect(): Promise<void> {
     if (!this.sdr) return
     await this.teardown()
-    this.set({ phase: 'disconnected', device: null, stats: null, signal: null })
+    this.set({ phase: 'disconnected', device: null, stats: null, signal: null, decoder: null })
   }
 
   async startStream(): Promise<void> {
@@ -201,7 +204,7 @@ export class SdrController {
     if (!this.sdr || this.state.phase !== 'streaming') return
     clearInterval(this.statsTimer)
     await this.sdr.stop()
-    this.set({ phase: 'connected', stats: null, signal: null })
+    this.set({ phase: 'connected', stats: null, signal: null, decoder: null })
   }
 
   updateSettings(patch: Partial<SdrSettings>) {
@@ -219,6 +222,7 @@ export class SdrController {
   setMarker(marker: number | null) {
     this.set({ marker })
     this.persist()
+    this.worker?.postMessage({ type: 'decoder', frequency: marker } satisfies DspInMessage)
   }
 
   dismissProblem() {
@@ -288,14 +292,14 @@ export class SdrController {
   private handleUsbDisconnect = (event: USBConnectionEvent) => {
     if (this.sdr && event.device === this.sdr.usb) {
       void this.teardown()
-      this.set({ phase: 'disconnected', device: null, stats: null, signal: null, problem: UNPLUGGED })
+      this.set({ phase: 'disconnected', device: null, stats: null, signal: null, decoder: null, problem: UNPLUGGED })
     }
     void this.refreshAuthorized()
   }
 
   private handleStreamError = (error: unknown) => {
     void this.teardown()
-    this.set({ phase: 'disconnected', device: null, stats: null, signal: null, problem: describeStreamError(error) })
+    this.set({ phase: 'disconnected', device: null, stats: null, signal: null, decoder: null, problem: describeStreamError(error) })
   }
 
   private handleBlock = (block: IqBlock) => {
@@ -318,7 +322,17 @@ export class SdrController {
   }
 
   private handleDsp = (event: MessageEvent<DspOutMessage>) => {
-    const frame = event.data
+    const msg = event.data
+    if (msg.type === 'sonde-fix') {
+      sondes.addFix(msg.fix)
+      return
+    }
+    if (msg.type === 'decoder') {
+      // Only meaningful while samples flow; a late status after Pause would resurrect it.
+      if (this.state.phase === 'streaming') this.set({ decoder: msg.status })
+      return
+    }
+    const frame = msg
     this.processed = frame.blocksProcessed
     for (const listener of this.spectrumListeners) listener(frame)
 
@@ -341,6 +355,7 @@ export class SdrController {
         framesPerSecond: FRAMES_PER_SECOND,
       }
       this.worker.postMessage(configure)
+      this.worker.postMessage({ type: 'decoder', frequency: this.state.marker } satisfies DspInMessage)
     }
     this.worker.postMessage(message, transfer)
   }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { formatDb, formatDuration, formatMHz, formatRate } from '../format'
+import type { DecoderStatus } from '../dsp/messages'
+import { formatDb, formatDuration, formatMHz, formatOffset, formatRate } from '../format'
 import { useI18n } from '../i18n'
 import type { SdrState } from '../sdr/controller'
 import { Panel } from './Panel'
@@ -19,9 +20,53 @@ function useNow(active: boolean) {
   return now
 }
 
+const DECODER_CLASS: Record<DecoderStatus['state'], string> = {
+  'no-marker': 'muted',
+  'out-of-band': 'warn',
+  searching: 'muted',
+  sync: 'warn',
+  locked: 'ok',
+}
+
+function DecoderRows({ status }: { status: DecoderStatus }) {
+  const { t } = useI18n()
+  const running = status.state !== 'no-marker' && status.state !== 'out-of-band'
+  return (
+    <>
+      <dl className="kv">
+        <dt>{t('decoder.title')}</dt>
+        <dd className={`mono ${DECODER_CLASS[status.state]}`}>{t(`decoder.state.${status.state}`)}</dd>
+        {running && (
+          <>
+            <dt>{t('decoder.frames')}</dt>
+            <dd className="mono">{t('decoder.framesValue', { good: status.goodFrames, bad: status.badFrames })}</dd>
+          </>
+        )}
+        {running && status.serial !== null && (
+          <>
+            <dt>{t('decoder.sonde')}</dt>
+            <dd className="mono">
+              {status.serial} · #{status.frame}
+            </dd>
+          </>
+        )}
+        {running && status.offset !== null && (
+          <>
+            <dt>{t('decoder.offset')}</dt>
+            <dd className="mono">{formatOffset(status.offset)}</dd>
+          </>
+        )}
+      </dl>
+      {status.state === 'no-marker' && <p className="small muted">{t('decoder.noMarkerHelp')}</p>}
+      {status.state === 'out-of-band' && <p className="small warn">{t('decoder.outOfBandHelp')}</p>}
+      {running && status.serial !== null && !status.gpsFix && <p className="small muted">{t('decoder.noGps')}</p>}
+    </>
+  )
+}
+
 export function StatsPanel({ state }: { state: SdrState }) {
   const { t } = useI18n()
-  const { stats, signal, settings, phase } = state
+  const { stats, signal, settings, phase, decoder } = state
   const now = useNow(phase === 'streaming')
 
   if (phase !== 'streaming' || !stats) {
@@ -71,6 +116,7 @@ export function StatsPanel({ state }: { state: SdrState }) {
           {t('signal.losing')}
         </p>
       )}
+      {decoder && <DecoderRows status={decoder} />}
     </Panel>
   )
 }

@@ -2,7 +2,7 @@
 
 Receive weather balloon radiosondes (400.15–406 MHz) with an RTL-SDR, straight from the browser over WebUSB. No drivers, servers or Python on the receive path.
 
-Current state: **connects to the dongle, live spectrum + waterfall, offline map with station and track display (try *Demo flight*), English/Spanish UI.** The RS41 decoder and logging come next.
+Current state: **connects to the dongle, live spectrum + waterfall, decodes Vaisala RS41 sondes onto an offline map (try *Demo flight* without one), English/Spanish UI.** Temperature/humidity and logging come next.
 
 **Everything runs offline.** All code, fonts and map icons are in this repo or in `node_modules`. The only thing to prepare at home is downloading the map area you need, from inside the app (see below).
 
@@ -55,9 +55,19 @@ RTL2832U dongles with an R820T, R820T2, R860 or R828D tuner: RTL-SDR Blog V3/V4,
 - **Sample rate**: 2.4 MS/s is the widest rate that stays reliable. If **USB rate** in the Signal panel drops below ~98%, samples are being lost, so lower it.
 - **Gain**: start with Auto. For weak or distant sondes, try manual gain around 35–45 dB. If **ADC clipping** goes above ~0.1%, lower the gain.
 - **Frequency correction (ppm)**: TCXO dongles (Blog V3/V4) are within about 1 ppm. Cheap ones can be 30–60 ppm off, so tune a known signal and adjust until it lands on its frequency.
-- **Marker**: click the spectrum or waterfall on a signal. This is where the decoder will listen.
+- **Marker**: click the spectrum or waterfall on a signal. This is where the decoder listens.
 
-RS41 sondes show up as a narrow signal about 10 kHz wide that transmits continuously. Sondes launch around 11:15 UTC for the 12Z sounding, and on some days around 23:15 UTC. Check https://sondehub.org for recent flights near you to learn the type and frequency.
+RS41 sondes show up as a narrow signal about 10 kHz wide that transmits continuously.
+
+## Decoding an RS41
+
+Put the marker on the sonde's signal, ideally with **Center on marker** so it sits clear of the DC spike in the middle. The **RS41 decoder** rows in the Signal panel show what it hears:
+
+- **searching…**: no frame header yet. Check the marker is on the signal.
+- **sync, frames failing**: headers arrive but the frames are too damaged. Usually a weak signal: improve the antenna or try another gain.
+- **locked**: good frames are coming in (one per second). The serial and frame number show up, and positions go to the map.
+
+The marker doesn't need to be exact: a sonde up to ±4 kHz off still decodes, and after the first good frame the decoder follows it (*Sonde offset*). A sonde on the ground without a GPS fix yet decodes but has no position to map. Encrypted RS41-SGM (military) sondes decode but their position cannot be read. Sondes launch around 11:15 UTC for the 12Z sounding, and on some days around 23:15 UTC. Check https://sondehub.org for recent flights near you to learn the type and frequency.
 
 ## Offline map
 
@@ -78,7 +88,7 @@ A quarter-wave vertical cut for 403 MHz has a radiator of about **18 cm** (plus 
 ## Development
 
 ```bash
-pnpm test        # DSP unit tests (vitest)
+pnpm test        # DSP, RS41 decoder and geo unit tests (vitest)
 pnpm lint        # oxlint
 pnpm build       # typecheck + production build
 ```
@@ -87,24 +97,26 @@ pnpm build       # typecheck + production build
 
 - `src/sdr/device.ts`: WebUSB access through [`@jtarrio/webrtlsdr`](https://github.com/jtarrio/webrtlsdr). Serialized config and a continuous stream with 2 bulk transfers in flight.
 - `src/sdr/controller.ts`: app-level owner of the dongle and the DSP worker. React reads it via `useSyncExternalStore`.
-- `src/dsp/`: runs in a Web Worker. FFT, averaged power spectrum, noise floor, peak, clipping.
+- `src/dsp/`: runs in a Web Worker. FFT, averaged power spectrum, noise floor, peak, clipping. `channelizer.ts` mixes the marker to baseband, filters and decimates to ~48 kHz, and FM-demodulates.
+- `src/sonde/rs41/`: the RS41 decoder, also in the worker. `demod.ts` (4800 baud GFSK symbol timing and header sync), `frame.ts` (Reed-Solomon, CRC, block parsing), `receiver.ts` (the whole chain, AFC, status). `synthetic.ts` builds and modulates fake frames for the tests.
 - `src/components/`: UI. `spectrumRenderer.ts` draws the spectrum and waterfall on canvases outside React.
 - `src/map/`: MapLibre map, tile protocol with IndexedDB cache and area downloads (`tiles.ts`, `tileCache.ts`), sonde info card.
-- `src/sonde/`: sonde track store (`addFix()` is what the decoder will call) and the demo flight.
+- `src/sonde/`: sonde track store (the decoder feeds `addFix()`) and the demo flight.
 - `src/i18n/`: translations. Add a key to `en.ts` and TypeScript makes you add it to `es.ts` too.
 
 ### Roadmap
 
 1. ~~Connect RTL-SDR, live spectrum/waterfall~~
 2. ~~Offline map, station, track display, English/Spanish~~
-3. Channelizer: mix the marker to baseband, filter, decimate to 48 kHz, FM-demodulate
-4. RS41 decoder: frame sync, descrambling, Reed-Solomon, CRC, position/altitude/PTU/serial → `sondes.addFix()`
-5. Landing prediction: offline estimate from the descent rate and the winds measured on the way up
-6. Logging (IndexedDB) and export (CSV / GPX / KML)
+3. ~~Channelizer: mix the marker to baseband, filter, decimate to 48 kHz, FM-demodulate~~
+4. ~~RS41 decoder: frame sync, descrambling, Reed-Solomon, CRC, position/altitude/serial → `sondes.addFix()`~~
+5. RS41 temperature and humidity (needs the calibration subframe collected over 51 frames)
+6. Landing prediction: offline estimate from the descent rate and the winds measured on the way up
+7. Logging (IndexedDB) and export (CSV / GPX / KML)
 
 ## Credits
 
 - Written together with [Claude](https://claude.ai), Anthropic's AI assistant.
 - RTL-SDR driver: [webrtlsdr](https://github.com/jtarrio/webrtlsdr) by Jacobo Tarrío.
 - Map data © [OpenStreetMap](https://openstreetmap.org/copyright) contributors, tiles by [Protomaps](https://protomaps.com), hosted on [Source Cooperative](https://source.coop), drawn with [MapLibre](https://maplibre.org).
-- RS41 format reference: [rs1729/RS](https://github.com/rs1729/RS).
+- RS41 format reference: [rs1729/RS](https://github.com/rs1729/RS) by zilog80 and [bazjo/RS41_Decoding](https://github.com/bazjo/RS41_Decoding), whose example frame is in the tests.

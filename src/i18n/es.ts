@@ -65,6 +65,20 @@ export const es: Record<MessageKey, string> = {
   'signal.losing':
     'Se están perdiendo muestras. Probá una tasa de muestreo menor, otro puerto USB o cerrá pestañas pesadas.',
 
+  'decoder.title': 'Decodificador RS41',
+  'decoder.state.no-marker': 'sin marcador',
+  'decoder.state.out-of-band': 'marcador fuera de banda',
+  'decoder.state.searching': 'buscando…',
+  'decoder.state.sync': 'sincronizado, tramas con errores',
+  'decoder.state.locked': 'enganchado',
+  'decoder.noMarkerHelp': 'Hacé clic en la señal de una sonda en el espectro o la cascada para decodificarla.',
+  'decoder.outOfBandHelp': 'El marcador está fuera de lo que recibe el dongle ahora. Usá Centrar en el marcador.',
+  'decoder.frames': 'Tramas',
+  'decoder.framesValue': '{good} bien · {bad} con error',
+  'decoder.sonde': 'Sonda',
+  'decoder.offset': 'Desvío de la sonda',
+  'decoder.noGps': 'Las tramas se decodifican pero todavía no traen posición GPS.',
+
   'spectrum.title': 'Espectro',
   'spectrum.paused': 'en pausa',
   'spectrum.hoverHint': 'Pasá el mouse para leer, clic para marcar',
