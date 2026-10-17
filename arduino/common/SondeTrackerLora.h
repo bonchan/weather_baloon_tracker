@@ -13,12 +13,14 @@
 
 namespace stk {
 
-// Every node of a team must use the same values. 915 MHz band (Americas); SF9 / 125 kHz is a
-// few km between cars and ~0.3 s on air for a POS.
+// Every node of a team must use the same values. 915 MHz band (Americas). SF8 / 250 kHz / 4/5
+// puts a POS (~100 bytes) on air for ~0.15 s, so the balloon can go out every 2 s and phones
+// every 5 s while leaving room for the team; that costs ~6 dB against SF9 / 125 kHz (about half
+// the range in open country). Lines carry their own checksum, so 4/5 coding is enough.
 constexpr float LORA_FREQ_MHZ = 915.0;
-constexpr float LORA_BW_KHZ = 125.0;
-constexpr uint8_t LORA_SF = 9;
-constexpr uint8_t LORA_CR = 7;              // coding rate 4/7
+constexpr float LORA_BW_KHZ = 250.0;
+constexpr uint8_t LORA_SF = 8;
+constexpr uint8_t LORA_CR = 5;              // coding rate 4/5
 constexpr uint8_t LORA_SYNC_WORD = 0x12;    // private networks (0x34 is LoRaWAN)
 constexpr uint16_t LORA_PREAMBLE = 8;
 constexpr float LORA_TCXO_V = 1.8;          // Heltec boards feed the SX1262's TCXO from DIO3

@@ -11,13 +11,13 @@ import { companions, type CompanionDevice } from './store'
  */
 
 /** The balloon goes out at most this often (LoRa airtime is shared by the whole team). */
-const SONDE_EVERY_MS = 10_000
+const SONDE_EVERY_MS = 2_000
 /** Each team member's position is relayed at most this often. */
-const RELAY_EVERY_MS = 30_000
+const RELAY_EVERY_MS = 15_000
 /** Members not heard for this long aren't relayed any more. */
 const RELAY_MAX_AGE_MS = 120_000
 /** One transmission per tick, so relays never pile up on the air. */
-const TICK_MS = 4_000
+const TICK_MS = 1_000
 
 export function baseStation(devices: CompanionDevice[]): CompanionDevice | undefined {
   return devices.find((d) => d.kind === KIND_BASE && d.link === 'open')

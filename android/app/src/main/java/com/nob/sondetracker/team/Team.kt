@@ -54,7 +54,7 @@ object Team {
         val onNetwork: Boolean get() = net != null && net != Pstk.NO_NET
     }
 
-    private const val SEND_EVERY_MS = 15_000L
+    private const val SEND_EVERY_MS = 5_000L
     private const val STALE_FIX_MS = 30_000L
 
     private lateinit var context: Context
@@ -159,7 +159,7 @@ object Team {
         main.postDelayed({
             sendMine()
             scheduleSend()
-        }, SEND_EVERY_MS + Random.nextLong(0, 2000))
+        }, SEND_EVERY_MS + Random.nextLong(0, 1000))
     }
 
     private fun sendMine() {
