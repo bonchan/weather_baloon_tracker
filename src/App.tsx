@@ -1,4 +1,5 @@
 import { lazy, Suspense, useState } from 'react'
+import { CompanionPanel } from './components/CompanionPanel'
 import { DevicePanel } from './components/DevicePanel'
 import { SpectrumView } from './components/SpectrumView'
 import { StatsPanel } from './components/StatsPanel'
@@ -67,6 +68,7 @@ export default function App() {
 
       <aside className="sidebar">
         <DevicePanel state={state} />
+        <CompanionPanel />
         <TuningPanel state={state} />
         <StatsPanel state={state} />
       </aside>

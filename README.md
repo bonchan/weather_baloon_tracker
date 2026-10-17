@@ -2,7 +2,7 @@
 
 Receive weather balloon radiosondes (400.15–406 MHz) with an RTL-SDR, straight from the browser over WebUSB. No drivers, servers or Python on the receive path.
 
-Current state: **connects to the dongle, live spectrum + waterfall, decodes Vaisala RS41 sondes (position, temperature, humidity) onto an offline map (try *Demo flight* without one), English/Spanish UI.** Landing prediction and logging come next.
+Current state: **connects to the dongle, live spectrum + waterfall, decodes Vaisala RS41 sondes (position, temperature, humidity) onto an offline map (try *Demo flight* without one), follows you with a USB GPS, English/Spanish UI.** Landing prediction and logging come next.
 
 **Everything runs offline.** All code, fonts and map icons are in this repo or in `node_modules`. The only thing to prepare at home is downloading the map area you need, from inside the app (see below).
 
@@ -81,7 +81,19 @@ The map is OpenStreetMap data ([Protomaps](https://protomaps.com) vector tiles) 
 
 The saved map belongs to the browser profile and the address (`http://localhost:5173`), so use the same browser in the field. *Delete saved map* frees the space.
 
-**Station:** click *Place station* and then the map, or *Use my location*. Distance, bearing and elevation to the sonde are measured from there.
+**Station:** click *Place station* and then the map, or *Use my location*, or let a USB GPS move it with you (see below). Distance, bearing and elevation to the sonde are measured from there.
+
+## GPS companions
+
+Plug a USB GPS into the laptop and the app knows where you are: a yellow marker on the map (an arrow pointing where you're driving), and the station moves with you, so distance, bearing and elevation to the sonde stay right during the chase.
+
+- **Which GPS**: the Sonde Tracker companions in `arduino/` (ESP32-C3 + NEO-6M, Heltec Wireless Tracker), or any USB GPS that sends NMEA GGA/RMC, like a u-blox USB puck. Several can be connected at once.
+- **Connect**: in the sidebar's *GPS companions* panel, click **Connect GPS** and pick the port in the browser's list. This uses Web Serial, so Chrome or Edge on a computer. From then on the app opens it by itself whenever it's plugged in. *Disconnect* stops that until you click *Connect* again, and *Forget* removes the permission.
+- **Station**: *Station follows my GPS* (in the map card) is on whenever a GPS has a fix. Like the sonde's altitude, the height is above the WGS84 ellipsoid when the GPS reports the geoid separation, otherwise above sea level. Placing the station by hand or with *Use my location* turns it off.
+- **Follow me** in the map card keeps the map centered on you; **Follow both** pans and zooms to keep you and the sonde in view.
+- The panel shows each device's fix, satellites, HDOP, how long since it last sent something, and a companion's latest log lines. Lines that arrive in the first half second after opening were queued in the device while the port was closed, so their positions are skipped.
+- Uploading a sketch from the Arduino IDE needs the port: click *Disconnect* in the app first.
+- Positions a companion relays for other trackers (any source other than `SELF`) show on the map labelled with the tracker's id.
 
 ## Antenna
 
@@ -90,7 +102,7 @@ A quarter-wave vertical cut for 403 MHz has a radiator of about **18 cm** (plus 
 ## Development
 
 ```bash
-pnpm test        # DSP, RS41 decoder and geo unit tests (vitest)
+pnpm test        # DSP, RS41 decoder, GPS companion and geo unit tests (vitest)
 pnpm lint        # oxlint
 pnpm build       # typecheck + production build
 ```
@@ -104,6 +116,7 @@ pnpm build       # typecheck + production build
 - `src/components/`: UI. `spectrumRenderer.ts` draws the spectrum and waterfall on canvases outside React.
 - `src/map/`: MapLibre map, tile protocol with IndexedDB cache and area downloads (`tiles.ts`, `tileCache.ts`), sonde info card.
 - `src/sonde/`: sonde track store (the decoder feeds `addFix()`) and the demo flight.
+- `src/companion/`: GPS companions. `protocol.ts` (the `$PSTK` link from `arduino/common/SondeTrackerLink.h`, plus NMEA GGA/RMC for plain GPSes), `serial.ts` (Web Serial ports), `store.ts` (devices, my position, remote trackers, the station following my fix).
 - `src/i18n/`: translations. Add a key to `en.ts` and TypeScript makes you add it to `es.ts` too.
 
 ### Roadmap
@@ -115,7 +128,7 @@ pnpm build       # typecheck + production build
 5. ~~RS41 temperature and humidity (needs the calibration subframe collected over 51 frames)~~
 6. Landing prediction: offline estimate from the descent rate and the winds measured on the way up
 7. Logging (IndexedDB) and export (CSV / GPX / KML)
-8. USB GPS: live station position from a companion device. The Arduino side is done: `arduino/esp32c3_weather_balook_tracker_companion` (ESP32-C3 + NEO-6M) and `arduino/heltec_weather_balook_tracker_companion` (Heltec Wireless Tracker, shows the fix and link on its screen). Open it with Web Serial (Chrome/Edge, USB vendor `0x303A` for both), send `$PSTK,HELLO`, and feed `$PSTK,POS` lines with src `SELF` to `sondes.setStation()`, altitude = `altMsl + geoidSep`. Skip the raw NMEA lines it also passes through, resync on `$`, and drop POS lines whose `utc` is more than a few seconds old (the USB buffer still holds lines from before the port opened). The protocol is in `arduino/common/SondeTrackerLink.h`, GPS reporting in `arduino/common/SondeTrackerGps.h`.
+8. ~~USB GPS: live position and station from a companion device over Web Serial~~ (firmware in `arduino/`, protocol in `arduino/common/SondeTrackerLink.h`)
 
 ## Credits
 

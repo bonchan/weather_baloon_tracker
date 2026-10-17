@@ -406,6 +406,11 @@ select:disabled {
   color: var(--warn);
 }
 
+.badge-neutral {
+  background: rgba(92, 200, 255, 0.12);
+  color: var(--accent);
+}
+
 .spinner {
   display: inline-block;
   width: 12px;
@@ -420,6 +425,37 @@ select:disabled {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ---------- GPS companions ---------- */
+
+.companion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-raised);
+}
+.companion-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.companion-head strong {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.companion-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
 }
 
 /* ---------- spectrum ---------- */
