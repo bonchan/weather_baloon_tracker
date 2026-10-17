@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">Sonde Tracker</string>
+    <string name="map_me">Me</string>
+    <string name="gps_waiting">Waiting for GPS…</string>
+    <string name="gps_no_permission">Location permission denied: allow it in the phone settings to show your position.</string>
+    <string name="gps_fix">%1$s, %2$s · ±%3$d m</string>
 </resources>
