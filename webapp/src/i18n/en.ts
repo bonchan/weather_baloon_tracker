@@ -158,7 +158,7 @@ export const en = {
   'offline.clear': 'Delete saved map',
   'offline.confirmClear': 'Delete all saved map tiles from this browser?',
   'map.you': 'You',
-  'map.youLabel': 'You',
+  'map.youLabel': 'Base',
   'map.placeMe': 'Place me',
   'map.youHelp': 'Connect a USB GPS, or place yourself on the map, to measure distance and bearing to the sonde.',
   'map.youGpsLost': 'GPS fix lost: showing where it last was.',

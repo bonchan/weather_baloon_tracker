@@ -160,7 +160,7 @@ export const es: Record<MessageKey, string> = {
   'offline.clear': 'Borrar mapa guardado',
   'offline.confirmClear': '¿Borrar todo el mapa guardado en este navegador?',
   'map.you': 'Tu posición',
-  'map.youLabel': 'Vos',
+  'map.youLabel': 'Base',
   'map.placeMe': 'Ubicarme',
   'map.youHelp': 'Conectá un GPS USB, o ubicate en el mapa, para medir distancia y rumbo a la sonda.',
   'map.youGpsLost': 'Se perdió la posición del GPS: se muestra la última.',
