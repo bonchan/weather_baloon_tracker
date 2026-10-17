@@ -16,8 +16,11 @@
 // An empty field means unknown / not valid.
 //
 // Device -> app
-//   ID   proto,kind,name,firmware
-//        At power-on and in reply to HELLO. kind is KIND_GPS or KIND_LORA.
+//   ID   proto,kind,name,firmware,net,device
+//        At power-on and in reply to HELLO. kind: KIND_GPS (USB GPS only), KIND_BASE (base
+//        station: GPS + LoRa, on the computer running the web app) or KIND_LORA (satellite
+//        node: LoRa + Bluetooth, paired with a phone). net and device only for LoRa kinds:
+//        net is the team network the node belongs to (NO_NET when none), device its chip id.
 //   POS  src,fix,sats,hdop,lat,lon,altMsl,geoidSep,speed,course,utc,rssi,snr
 //        src        SRC_SELF for the device's own GPS, otherwise the remote tracker's id
 //        fix        0 = no data from the GPS module, 1 = searching, 2 = fix
@@ -32,9 +35,36 @@
 //        rssi, snr  dBm and dB of the radio packet (remote trackers only)
 //   LOG  text       human readable; the rest of the line, may contain commas
 //   ERR  text       a command was not understood
+//   HEARD rssi,snr,<inner>
+//        A sentence heard over LoRa on our network. <inner> is that sentence without "$" and
+//        "*hh" (e.g. "PSTK,POS,JUAN,2,..."), so apps read it with the same parser.
+//   JOINREQ rssi,snr,device,callsign
+//        Base station only: a satellite asks to join (the web app shows it for approval).
+//   BOUND net       satellite: the base accepted us; we are now on network net
+//   REJECTED        satellite: the base turned our JOIN down
 //
 // App -> device (checksum optional, so commands can be typed in a serial monitor)
 //   HELLO           -> ID
+//   TX <inner>      send <inner> over LoRa on our network (a satellite only once bound)
+//   Base station only:
+//     ACCEPT device   let a satellite in: sends it our net
+//     REJECT device
+//     NEWNET          start a new network (new random net); every satellite has to join again
+//   Satellite only:
+//     JOIN callsign   ask the base station to let us in (goes out with our device id)
+//     LEAVE           forget the network
+//
+// LoRa (radio settings in SondeTrackerLora.h): every packet is "@<net> <sentence>", e.g.
+//   @3F2A $PSTK,POS,JUAN,2,,,-38.950000,-68.060000,270.0,,1.20,90.0,1792250428,,*hh
+// Nodes drop packets of other networks, so two teams on the same frequency never mix.
+// On the air:
+//   POS     src,...           as above; src is the sender's callsign, SRC_BASE for the base
+//   SONDE   serial,frame,lat,lon,alt,climb,speed,course,utc   the balloon, from the base
+//   JOIN    device,callsign   satellite -> base, sent with net NO_NET
+//   ACCEPT  device,net        base -> satellite
+//   REJECT  device            base -> satellite
+// The base station (the web app) relays what it hears, so satellites out of range of each
+// other still see each other. This is coordination, not security: anyone can listen.
 //
 // Readers ignore unknown types and extra trailing fields, so both can be added later
 // without breaking older apps. Raise PROTOCOL_VERSION only for incompatible changes.
@@ -54,8 +84,13 @@ constexpr uint32_t LINK_BAUD = 115200;
 constexpr size_t MAX_LINE = 160;   // longest sentence, "*hh\r\n" included
 
 constexpr char KIND_GPS[] = "GPS";
+constexpr char KIND_BASE[] = "BASE";
 constexpr char KIND_LORA[] = "LORA";
 constexpr char SRC_SELF[] = "SELF";
+constexpr char SRC_BASE[] = "BASE";
+constexpr char NO_NET[] = "----";
+constexpr size_t NET_LEN = 4;      // hex digits
+constexpr size_t DEVICE_LEN = 6;   // hex digits
 
 enum Fix : uint8_t { FIX_NO_GPS = 0, FIX_SEARCHING = 1, FIX_OK = 2 };
 
@@ -150,6 +185,36 @@ inline bool sendId(Print &out, const char *kind, const char *name, const char *f
   return Sentence("ID").field(PROTOCOL_VERSION).field(kind).field(name).field(firmware).send(out);
 }
 
+inline bool sendId(Print &out, const char *kind, const char *name, const char *firmware,
+                   const char *net, const char *device) {
+  return Sentence("ID").field(PROTOCOL_VERSION).field(kind).field(name).field(firmware)
+      .field(net).field(device).send(out);
+}
+
+// This chip's id: the last 3 bytes of its factory MAC, as 6 hex digits.
+inline void deviceId(char out[DEVICE_LEN + 1]) {
+  uint64_t mac = ESP.getEfuseMac();   // first MAC byte in the low byte
+  snprintf(out, DEVICE_LEN + 1, "%02X%02X%02X", (unsigned)((mac >> 24) & 0xFF),
+           (unsigned)((mac >> 32) & 0xFF), (unsigned)((mac >> 40) & 0xFF));
+}
+
+// "$<body>*hh" with a good checksum: cuts it in place and returns <body>, else nullptr.
+inline char *checkedBody(char *line) {
+  if (line[0] != '$') return nullptr;
+  char *star = strrchr(line, '*');
+  if (!star || !isxdigit(star[1]) || !isxdigit(star[2])) return nullptr;
+  uint8_t sum = 0;
+  for (const char *c = line + 1; c < star; c++) sum ^= (uint8_t)*c;
+  if (strtoul(star + 1, nullptr, 16) != sum) return nullptr;
+  *star = 0;
+  return line + 1;
+}
+
+// Reports a sentence heard over LoRa to the app.
+inline bool sendHeard(Print &out, float rssi, float snr, const char *inner) {
+  return Sentence("HEARD").field(rssi, 0).field(snr, 1).field(inner).send(out);
+}
+
 inline bool sendPosition(Print &out, const Position &p) {
   Sentence s("POS");
   s.field(p.src).field((int)p.fix);
@@ -175,19 +240,23 @@ class CommandReader {
   // which stay valid until the next poll().
   bool poll(Stream &in) {
     while (in.available()) {
-      char c = (char)in.read();
-      if (c == '\r' || c == '\n') {
-        bool ready = len_ && !overflow_;
-        line_[len_] = 0;
-        len_ = 0;
-        overflow_ = false;
-        if (ready && parse()) return true;
-      } else if (len_ < sizeof(line_) - 1) {
-        line_[len_++] = c;
-      } else {
-        overflow_ = true;
-      }
+      if (feed((char)in.read())) return true;
     }
+    return false;
+  }
+
+  // One character at a time, for links that aren't a Stream (Bluetooth writes).
+  // Returns true when it completed a command.
+  bool feed(char c) {
+    if (c == '\r' || c == '\n') {
+      bool ready = len_ && !overflow_;
+      line_[len_] = 0;
+      len_ = 0;
+      overflow_ = false;
+      return ready && parse();
+    }
+    if (len_ < sizeof(line_) - 1) line_[len_++] = c;
+    else overflow_ = true;
     return false;
   }
 

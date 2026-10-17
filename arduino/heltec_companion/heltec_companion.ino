@@ -1,309 +1,316 @@
-#include <Arduino.h>
+// Heltec WiFi LoRa 32 V3 / V4 - a satellite node of the Sonde Tracker search team.
+//
+// It pairs over Bluetooth with the phone app and puts it on the team's LoRa network
+// (protocol in ../common/SondeTrackerLink.h, radio settings in ../common/SondeTrackerLora.h):
+//   - the phone sends $PSTK commands: JOIN <callsign> asks the base station to let us in;
+//     once the base accepts, TX <sentence> sends the phone's position to the team;
+//   - what the node hears on its network goes to the phone as $PSTK,HEARD (the base station,
+//     the balloon and the other satellites);
+//   - the network id is kept in flash, so after a reboot the node is still on the team.
+// The same lines go to the USB serial port, so a serial monitor shows what happens and
+// accepts the same commands (type $PSTK,HELLO).
+//
+// Libraries (Library Manager): "RadioLib" (Jan Gromes), "NimBLE-Arduino" (h2zero, 1.4.x),
+//   "Adafruit SSD1306" (installs Adafruit GFX too).
+// Board: "Heltec WiFi LoRa 32(V3)" (also for the V4), and pick the board below.
+//
+// Screen (wakes for a while on every event or with the PRG button):
+//   callsign / device id
+//   network: NO NETWORK / JOIN SENT / NET 3F2A
+//   Bluetooth: phone connected or waiting
+//   packets heard, last RSSI
+
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include <RadioLib.h>
 #include <NimBLEDevice.h>
+#include "../common/SondeTrackerLora.h"
 
-// ============================================================================
-// HARDWARE BOARD SELECTION & PIN CONFIGURATION
-// ============================================================================
-// Uncomment ONLY ONE of the two lines below:
+// ---------------- Board: uncomment ONLY ONE ----------------
 #define HELTEC_V3_BOARD
 // #define HELTEC_V4_BOARD
 
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
+// ---------------- Settings ----------------
+#define FIRMWARE_VERSION  "2.0"
+#define SCREEN_ON_MS      15000
 
+#if defined(HELTEC_V3_BOARD)
+  #define LORA_POWER_DBM  22   // SX1262 maximum
+#elif defined(HELTEC_V4_BOARD)
+  // The V4's GC1109 PA adds its own gain on top. Pins as in Meshtastic's heltec_v4 variant:
+  // check them against Heltec's V4 schematic before trusting the output power.
+  #define LORA_POWER_DBM  10
+  #define PA_POWER_PIN    7    // powers the PA
+  #define PA_ENABLE_PIN   2    // PA chip enable
+  #define PA_TX_PIN       46   // high while transmitting
+#else
+  #error "Pick HELTEC_V3_BOARD or HELTEC_V4_BOARD above"
+#endif
+
+// ---------------- Pins ----------------
 #define OLED_SDA     17
 #define OLED_SCL     18
 #define OLED_RST     21
-#define VEXT_CTRL    36  // Controls power to OLED & external peripherals
-#define BUTTON_PIN   0   // Onboard PRG/USER Button
+#define VEXT_CTRL    36   // powers the OLED (LOW = on)
+#define BUTTON_PIN   0    // PRG button
 
-#if defined(HELTEC_V3_BOARD)
-  #define LORA_NSS   8
-  #define LORA_SCK   9
-  #define LORA_MOSI  10
-  #define LORA_MISO  11
-  #define LORA_RST   12
-  #define LORA_BUSY  13
-  #define LORA_DIO1  14
-  #define MAX_POWER  22  // dBm
-#elif defined(HELTEC_V4_BOARD)
-  #define LORA_NSS   8
-  #define LORA_SCK   9
-  #define LORA_MOSI  10
-  #define LORA_MISO  11
-  #define LORA_RST   12
-  #define LORA_BUSY  13
-  #define LORA_DIO1  14
-  #define MAX_POWER  28  // dBm (External GC1109 PA)
-#endif
+// Nordic UART service, which the phone app looks for.
+#define UART_SERVICE  "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
+#define UART_RX       "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"   // the phone writes here
+#define UART_TX       "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"   // we notify here
 
-// ============================================================================
-// GLOBAL INSTANCES & STATE VARIABLES
-// ============================================================================
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RST);
+Adafruit_SSD1306 display(128, 64, &Wire, OLED_RST);
+stk::LoraLink lora(stk::HELTEC_LORA_PINS);
+stk::NetStore netStore;
+stk::CommandReader serialCommands;
+stk::CommandReader bleCommands;
+Preferences prefs;
 
-SPIClass loraSPI(FSPI);
-SX1262 radio = new Module(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY, loraSPI);
+char net[stk::NET_LEN + 1];
+char device[stk::DEVICE_LEN + 1];
+char callsign[9] = "";
+bool joinPending = false;
+uint32_t heardCount = 0;
+float lastRssi = NAN;
+unsigned long screenOffAt = 0;
+bool screenOn = false;
 
-// BLE GATT Service Definitions (UART style)
-#define SERVICE_UUID        "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
-#define CHARACTERISTIC_RX   "6E400002-B5A3-F393-E0A9-E50E24DCCA9E" // Write from Phone
-#define CHARACTERISTIC_TX   "6E400003-B5A3-F393-E0A9-E50E24DCCA9E" // Notify to Phone
+NimBLECharacteristic *txChar = nullptr;
+volatile bool phoneConnected = false;
+volatile uint16_t phoneConn = 0;
+// Bluetooth writes arrive on the BLE task; loop() turns them into commands.
+QueueHandle_t bleRx;
 
-NimBLECharacteristic* pTxCharacteristic = nullptr;
-bool deviceConnected = false;
-bool loraInitialized = false;
-
-// Non-blocking LoRa interrupt flag
-volatile bool loraPacketReceived = false;
-
-// Display and timing control
-unsigned long lastSerialPrint = 0;
-unsigned long screenOffTime = 0;
-bool screenIsOn = false;
-uint32_t rxPacketCount = 0;
-
-// Function Prototypes
-void wakeScreen();
-void sleepScreen();
-void updateDisplayStatus(const char* statusText, const char* extraInfo = "");
-void IRAM_ATTR setLoRaRxFlag();
-
-// ============================================================================
-// BLE CALLBACK CLASSES
-// ============================================================================
-class ServerCallbacks : public NimBLEServerCallbacks {
-  void onConnect(NimBLEServer* pServer) override {
-    deviceConnected = true;
-    Serial.println("BLE: Mobile app connected!");
-    if (screenIsOn) updateDisplayStatus("BLE Connected");
+// ---------------- Lines to the phone and the serial port ----------------
+// A whole sentence ("$...*hh") goes to the serial port and, chunked to the link's MTU, to the phone.
+void emit(const char *line) {
+  Serial.print(line);
+  Serial.print("\r\n");
+  if (!phoneConnected || !txChar) return;
+  uint16_t mtu = NimBLEDevice::getServer()->getPeerMTU(phoneConn);
+  size_t chunk = mtu > 23 ? mtu - 3 : 20;
+  String text = String(line) + "\r\n";
+  for (size_t i = 0; i < text.length(); i += chunk) {
+    String part = text.substring(i, i + chunk);
+    txChar->setValue((const uint8_t *)part.c_str(), part.length());
+    txChar->notify();
   }
-  
-  void onDisconnect(NimBLEServer* pServer) override {
-    deviceConnected = false;
-    Serial.println("BLE: Mobile app disconnected! Advertising restarted...");
+}
+
+void emit(stk::Sentence &s) {
+  stk::LineBuffer line;
+  if (s.send(line)) emit(line.c_str());
+}
+
+void sendId() {
+  stk::Sentence s("ID");
+  s.field(stk::PROTOCOL_VERSION).field(stk::KIND_LORA).field(callsign[0] ? callsign : "SAT")
+      .field(FIRMWARE_VERSION).field(net).field(device);
+  emit(s);
+}
+
+void logLine(const char *text) {
+  stk::Sentence s("LOG");
+  s.field(text);
+  emit(s);
+}
+
+void errorLine(const char *text) {
+  stk::Sentence s("ERR");
+  s.field(text);
+  emit(s);
+}
+
+bool onNetwork() { return strcmp(net, stk::NO_NET) != 0; }
+
+// ---------------- Bluetooth ----------------
+class ServerCallbacks : public NimBLEServerCallbacks {
+  void onConnect(NimBLEServer *server, ble_gap_conn_desc *desc) override {
+    phoneConn = desc->conn_handle;
+    phoneConnected = true;
+  }
+  void onDisconnect(NimBLEServer *server) override {
+    phoneConnected = false;
     NimBLEDevice::startAdvertising();
-    if (screenIsOn) updateDisplayStatus("BLE Waiting...");
   }
 };
 
 class RxCallbacks : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic* pCharacteristic) override {
-    std::string rxValue = pCharacteristic->getValue();
-    if (rxValue.length() > 0) {
-      Serial.printf("BLE RX -> Transmitting over LoRa (%d bytes): %s\n", 
-                    rxValue.length(), rxValue.c_str());
-
-      // Transmit payload received from Phone directly over LoRa radio
-      int state = radio.transmit((uint8_t*)rxValue.data(), rxValue.length());
-      
-      if (state == RADIOLIB_ERR_NONE) {
-        Serial.println("LoRa TX: Packet sent successfully.");
-      } else {
-        Serial.printf("LoRa TX: Failed with error code %d\n", state);
-      }
-
-      // Resume continuous non-blocking listening mode
-      radio.startReceive();
-    }
+  void onWrite(NimBLECharacteristic *c) override {
+    std::string value = c->getValue();
+    for (char ch : value) xQueueSend(bleRx, &ch, 0);
   }
 };
 
-// ============================================================================
-// SETUP
-// ============================================================================
-void setup() {
-  // 1. Enable Vext Power Rail for OLED & Peripherals
-  pinMode(VEXT_CTRL, OUTPUT);
-  digitalWrite(VEXT_CTRL, LOW); // LOW turns ON Vext rail on Heltec boards
-  delay(100);
+void startBluetooth() {
+  char name[24];
+  snprintf(name, sizeof(name), "SondeTracker-%s", device);
+  NimBLEDevice::init(name);
+  NimBLEDevice::setMTU(185);   // a $PSTK line in one notification on phones that allow it
+  NimBLEServer *server = NimBLEDevice::createServer();
+  server->setCallbacks(new ServerCallbacks());
+  NimBLEService *service = server->createService(UART_SERVICE);
+  txChar = service->createCharacteristic(UART_TX, NIMBLE_PROPERTY::NOTIFY);
+  NimBLECharacteristic *rx = service->createCharacteristic(UART_RX, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
+  rx->setCallbacks(new RxCallbacks());
+  service->start();
+  NimBLEAdvertising *adv = NimBLEDevice::getAdvertising();
+  adv->addServiceUUID(UART_SERVICE);
+  adv->setScanResponse(true);   // room for the name next to the 128-bit service UUID
+  adv->start();
+}
 
-  // 2. Configure USER Button
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
-
-  // 3. Initialize Serial Communication
-  Serial.begin(115200);
-  unsigned long startWait = millis();
-  while (!Serial && (millis() - startWait < 3000)) {
-    delay(10);
-  }
-  Serial.println("\n--- HELTEC NODE INITIALIZING ---");
-
-  // 4. Initialize OLED Display
-  Wire.begin(OLED_SDA, OLED_SCL);
-  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
-    Serial.println("ERROR: OLED Display initialization failed!");
+// ---------------- Commands (from the phone or the serial port) ----------------
+void handle(stk::CommandReader &cmd) {
+  const char *args = cmd.args();
+  if (cmd.is("HELLO")) {
+    sendId();
+  } else if (cmd.is("JOIN")) {
+    strlcpy(callsign, args, sizeof(callsign));
+    prefs.putString("callsign", callsign);
+    char body[48];
+    snprintf(body, sizeof(body), "PSTK,JOIN,%s,%s", device, callsign);
+    if (lora.sendBody(stk::NO_NET, body)) {
+      joinPending = true;
+      logLine("Join request sent");
+    } else {
+      errorLine("LoRa transmit failed");
+    }
+  } else if (cmd.is("LEAVE")) {
+    strlcpy(net, stk::NO_NET, sizeof(net));
+    netStore.save(net);
+    joinPending = false;
+    sendId();
+  } else if (cmd.is("TX")) {
+    if (!onNetwork()) errorLine("Not on a network: JOIN first");
+    else if (strncmp(args, "PSTK,", 5) != 0 || !lora.sendBody(net, args)) errorLine("TX failed");
   } else {
-    Serial.println("SUCCESS: OLED Display initialized.");
+    errorLine((String("Unknown command ") + cmd.type()).c_str());
+  }
+  wakeScreen();
+}
+
+// ---------------- LoRa ----------------
+// "device,..." addressed to this node?
+bool forMe(const char *args) { return strncmp(args, device, stk::DEVICE_LEN) == 0 && args[stk::DEVICE_LEN] == ','; }
+bool forMeExact(const char *args) { return strcmp(args, device) == 0; }
+
+void handleLora() {
+  while (lora.poll()) {
+    lastRssi = lora.rssi();
+    if (lora.is("ACCEPT") && forMe(lora.args())) {
+      const char *given = lora.args() + stk::DEVICE_LEN + 1;
+      if (!stk::validNet(given)) continue;
+      strlcpy(net, given, sizeof(net));
+      netStore.save(net);
+      joinPending = false;
+      stk::Sentence s("BOUND");
+      s.field(net);
+      emit(s);
+      sendId();
+    } else if (lora.is("REJECT") && forMeExact(lora.args())) {
+      joinPending = false;
+      stk::Sentence s("REJECTED");
+      emit(s);
+    } else if (onNetwork() && strcmp(lora.net(), net) == 0) {
+      heardCount++;
+      stk::Sentence s("HEARD");
+      s.field(lora.rssi(), 0).field(lora.snr(), 1).field(lora.body());
+      emit(s);
+    }
     wakeScreen();
   }
-
-  // 5. Initialize SPI & LoRa Transceiver
-  loraSPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_NSS);
-  int loraState = radio.begin(915.0, 125.0, 9, 7, 0x12, MAX_POWER);
-  
-  if (loraState == RADIOLIB_ERR_NONE) {
-    loraInitialized = true;
-    Serial.println("SUCCESS: LoRa Radio initialized @ 915 MHz.");
-    
-    // Set non-blocking interrupt callback on DIO1 pin for received packets
-    radio.setDio1Action(setLoRaRxFlag);
-    radio.startReceive(); // Put radio into continuous receive mode
-  } else {
-    Serial.printf("ERROR: LoRa init failed, code: %d\n", loraState);
-  }
-
-  // 6. Initialize NimBLE Stack
-  NimBLEDevice::init("Heltec-MeshNode");
-  NimBLEServer* pServer = NimBLEDevice::createServer();
-  pServer->setCallbacks(new ServerCallbacks());
-
-  NimBLEService* pService = pServer->createService(SERVICE_UUID);
-
-  pTxCharacteristic = pService->createCharacteristic(
-    CHARACTERISTIC_TX,
-    NIMBLE_PROPERTY::NOTIFY
-  );
-
-  NimBLECharacteristic* pRxCharacteristic = pService->createCharacteristic(
-    CHARACTERISTIC_RX,
-    NIMBLE_PROPERTY::WRITE
-  );
-  pRxCharacteristic->setCallbacks(new RxCallbacks());
-
-  pService->start();
-  NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->start();
-
-  Serial.println("SUCCESS: BLE GATT Server initialized & advertising.");
-  updateDisplayStatus("Node Ready", "BLE Advertising");
 }
 
-// ============================================================================
-// MAIN LOOP
-// ============================================================================
-void loop() {
-  unsigned long currentMillis = millis();
-
-  // --- 1. Handle Incoming LoRa Packets (Triggered by Interrupt) ---
-  if (loraPacketReceived) {
-    loraPacketReceived = false;
-
-    String rxStr;
-    int state = radio.readData(rxStr);
-
-    if (state == RADIOLIB_ERR_NONE) {
-      rxPacketCount++;
-      float rssi = radio.getRSSI();
-      float snr = radio.getSNR();
-
-      Serial.printf("LoRa RX [#%u] | RSSI: %.1f dBm | SNR: %.1f dB | Payload: %s\n", 
-                    rxPacketCount, rssi, snr, rxStr.c_str());
-
-      // Forward received packet to Expo app via BLE Notify
-      if (deviceConnected && pTxCharacteristic != nullptr) {
-        pTxCharacteristic->setValue((uint8_t*)rxStr.c_str(), rxStr.length());
-        pTxCharacteristic->notify();
-        Serial.println("BLE TX: Forwarded LoRa packet to phone.");
-      }
-
-      // Briefly wake up screen to alert user of incoming message
-      wakeScreen();
-      char extraBuffer[32];
-      snprintf(extraBuffer, sizeof(extraBuffer), "RSSI: %.0f dBm", rssi);
-      updateDisplayStatus("Packet Recv!", extraBuffer);
-
-    } else if (state == RADIOLIB_ERR_CRC_MISMATCH) {
-      Serial.println("LoRa RX Error: CRC Mismatch!");
-    } else {
-      Serial.printf("LoRa RX Error code: %d\n", state);
-    }
-
-    // Re-enable continuous RX listening
-    radio.startReceive();
-  }
-
-  // --- 2. Check User Button (Manual Screen Wake) ---
-  if (digitalRead(BUTTON_PIN) == LOW) {
-    delay(50); // Debounce
-    if (digitalRead(BUTTON_PIN) == LOW) {
-      Serial.println("ACTION: User button pressed. Waking screen...");
-      wakeScreen();
-      while(digitalRead(BUTTON_PIN) == LOW); // Wait for release
-    }
-  }
-
-  // --- 3. Auto Screen Sleep Timeout ---
-  if (screenIsOn && (currentMillis >= screenOffTime)) {
-    sleepScreen();
-  }
-
-  // --- 4. 10-Second Heartbeat Logging ---
-  if (currentMillis - lastSerialPrint >= 10000) {
-    lastSerialPrint = currentMillis;
-
-    Serial.printf("[HEARTBEAT] Uptime: %lu s | BLE: %s | LoRa Packets RX: %u | Free Heap: %u bytes\n", 
-                  currentMillis / 1000, 
-                  deviceConnected ? "Connected" : "Disconnected", 
-                  rxPacketCount,
-                  ESP.getFreeHeap());
-
-    if (screenIsOn) {
-      updateDisplayStatus(deviceConnected ? "BLE: Connected" : "BLE: Idle");
-    }
-  }
-}
-
-// ============================================================================
-// HELPER & DISPLAY FUNCTIONS
-// ============================================================================
-
-// Interrupt Service Routine (ISR) triggered by RadioLib on DIO1 pin
-void IRAM_ATTR setLoRaRxFlag() {
-  loraPacketReceived = true;
-}
-
+// ---------------- Screen ----------------
 void wakeScreen() {
-  display.ssd1306_command(SSD1306_DISPLAYON);
-  screenIsOn = true;
-  screenOffTime = millis() + 5000; // Keep screen on for 5 seconds
+  if (!screenOn) display.ssd1306_command(SSD1306_DISPLAYON);
+  screenOn = true;
+  screenOffAt = millis() + SCREEN_ON_MS;
 }
 
-void sleepScreen() {
+void drawScreen() {
+  if (!screenOn) return;
+  if ((long)(millis() - screenOffAt) > 0) {
+    display.clearDisplay();
+    display.display();
+    display.ssd1306_command(SSD1306_DISPLAYOFF);
+    screenOn = false;
+    return;
+  }
   display.clearDisplay();
-  display.display();
-  display.ssd1306_command(SSD1306_DISPLAYOFF);
-  screenIsOn = false;
-  Serial.println("INFO: OLED screen entered sleep mode.");
-}
-
-void updateDisplayStatus(const char* statusText, const char* extraInfo) {
-  display.clearDisplay();
-  display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
-  
+  display.setTextSize(1);
   display.setCursor(0, 0);
-  display.println("HELTEC MESH NODE");
+  display.printf("%s  %s", callsign[0] ? callsign : "SONDE SAT", device);
   display.drawFastHLine(0, 10, 128, SSD1306_WHITE);
+  display.setTextSize(2);
+  display.setCursor(0, 15);
+  if (!lora.ok()) display.printf("LORA ERR");
+  else if (onNetwork()) display.printf("NET %s", net);
+  else display.print(joinPending ? "JOIN SENT" : "NO NET");
+  display.setTextSize(1);
+  display.setCursor(0, 38);
+  display.print(phoneConnected ? "Phone connected" : "Phone: waiting (BLE)");
+  display.setCursor(0, 52);
+  if (isnan(lastRssi)) display.printf("Heard %lu", (unsigned long)heardCount);
+  else display.printf("Heard %lu  %.0f dBm", (unsigned long)heardCount, lastRssi);
+  display.display();
+}
 
-  display.setCursor(0, 20);
-  display.printf("Status: %s\n", statusText);
+// ---------------- Setup / loop ----------------
+void setup() {
+  pinMode(VEXT_CTRL, OUTPUT);
+  digitalWrite(VEXT_CTRL, LOW);
+  delay(100);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  Serial.begin(stk::LINK_BAUD);
 
-  if (strlen(extraInfo) > 0) {
-    display.setCursor(0, 32);
-    display.println(extraInfo);
+  Wire.begin(OLED_SDA, OLED_SCL);
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  wakeScreen();
+
+  stk::deviceId(device);
+  netStore.load(net);
+  prefs.begin("stk-sat", false);
+  strlcpy(callsign, prefs.getString("callsign", "").c_str(), sizeof(callsign));
+
+#if defined(HELTEC_V4_BOARD)
+  pinMode(PA_POWER_PIN, OUTPUT);
+  digitalWrite(PA_POWER_PIN, HIGH);
+  pinMode(PA_ENABLE_PIN, OUTPUT);
+  digitalWrite(PA_ENABLE_PIN, HIGH);
+  lora.setTxEnablePin(PA_TX_PIN);
+#endif
+  if (!lora.begin(LORA_POWER_DBM)) {
+    char msg[40];
+    snprintf(msg, sizeof(msg), "LoRa init failed: %d", lora.error());
+    logLine(msg);
   }
 
-  display.setCursor(0, 44);
-  display.printf("BLE: %s", deviceConnected ? "CONNECTED" : "WAITING");
+  bleRx = xQueueCreate(512, sizeof(char));
+  startBluetooth();
+  sendId();
+}
 
-  display.setCursor(0, 54);
-  display.printf("RX Pkts: %u", rxPacketCount);
+void loop() {
+  char ch;
+  while (xQueueReceive(bleRx, &ch, 0) == pdTRUE) {
+    if (bleCommands.feed(ch)) handle(bleCommands);
+  }
+  while (serialCommands.poll(Serial)) handle(serialCommands);
+  handleLora();
 
-  display.display();
+  static bool wasConnected = false;
+  if (phoneConnected != wasConnected) {
+    wasConnected = phoneConnected;
+    wakeScreen();
+  }
+  if (digitalRead(BUTTON_PIN) == LOW) wakeScreen();
+
+  static unsigned long lastDraw = 0;
+  if (millis() - lastDraw > 250) {
+    lastDraw = millis();
+    drawScreen();
+  }
 }

@@ -1,13 +1,17 @@
-// Heltec Wireless Tracker (ESP32-S3 + UC6580 GNSS + 0.96" TFT) - USB GPS for the Sonde Tracker
-// app (and any computer)
+// Heltec Wireless Tracker (ESP32-S3 + UC6580 GNSS + SX1262 LoRa + 0.96" TFT) - the base station
+// of the Sonde Tracker search team, plugged into the computer running the web app.
 //
-// Same as the ESP32-C3 companion: plug it in and it shows up as a USB serial port, no driver
-// needed. Once a second it sends a $PSTK,POS line with the position (protocol in
-// ../common/SondeTrackerLink.h). The module's own NMEA goes through too, so programs that
-// read NMEA GPS ports (gpsd, u-center, OpenCPN...) can use it as well. The LoRa radio isn't
-// used yet.
+// Plug it in and it shows up as a USB serial port, no driver needed (protocol in
+// ../common/SondeTrackerLink.h):
+//   - USB GPS: once a second a $PSTK,POS with its position, plus the module's raw NMEA, so
+//     NMEA programs (gpsd, u-center, OpenCPN...) can use it too.
+//   - LoRa base: it owns the team network (a random 4-digit net id kept in flash). Every
+//     BASE_POS_MS it broadcasts its own position as "BASE". What it hears on its network goes
+//     to the web app as $PSTK,HEARD; satellites asking to join show up as $PSTK,JOINREQ and
+//     the web app answers with ACCEPT / REJECT. The web app sends the balloon and relays the
+//     team with TX.
 //
-// Libraries (Library Manager): "TinyGPSPlus" (Mikal Hart),
+// Libraries (Library Manager): "TinyGPSPlus" (Mikal Hart), "RadioLib" (Jan Gromes),
 //   "Adafruit ST7735 and ST7789 Library" (installs Adafruit GFX too).
 // Board: "Heltec Wireless Tracker" with
 //   Tools > USB Mode: Hardware CDC and JTAG   (TinyUSB's 64-byte buffer can't hold a line)
@@ -20,7 +24,7 @@
 //   longitude
 //   altitude, speed
 //   HDOP, local time
-//   App connected / USB port open, no app / USB: waiting for the app
+//   App / USB status, LoRa network id, packets heard
 //
 // Try it from a serial monitor: type $PSTK,HELLO and it answers with its $PSTK,ID line.
 
@@ -28,6 +32,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7735.h>
 #include "../common/SondeTrackerGps.h"
+#include "../common/SondeTrackerLora.h"
 
 #if defined(ARDUINO_USB_CDC_ON_BOOT) && !ARDUINO_USB_CDC_ON_BOOT
 #error "Set Tools > USB CDC On Boot to Enabled, so Serial is the USB port"
@@ -37,11 +42,13 @@
 #endif
 
 // ---------------- Settings ----------------
-#define DEVICE_NAME       "GPS-USB-Heltec"
-#define FIRMWARE_VERSION  "1.0"
+#define DEVICE_NAME       "Base-Heltec-Tracker"
+#define FIRMWARE_VERSION  "2.0"
 #define NMEA_PASSTHROUGH  true   // also send the module's raw NMEA to the computer
 #define TZ_OFFSET_HOURS   -3     // local time on the screen (Argentina = -3)
 #define LINK_TIMEOUT_MS   3000   // POS lines not fitting in the port this long = nobody reading
+#define LORA_POWER_DBM    22     // SX1262 output; the Wireless Tracker has no external PA
+#define BASE_POS_MS       10000  // how often the base broadcasts its own position
 
 // ---------------- Pins ----------------
 #define VEXT_CTRL   3    // powers GNSS + TFT (HIGH = on)
@@ -61,28 +68,83 @@ Adafruit_ST7735 tft(&SPI, TFT_CS, TFT_DC, TFT_RST);
 HardwareSerial GPSSerial(1);
 stk::GpsReporter gps(NMEA_PASSTHROUGH);
 stk::CommandReader commands;
+stk::LoraLink lora(stk::HELTEC_LORA_PINS);
+stk::NetStore netStore;
 
+char net[stk::NET_LEN + 1];
+char device[stk::DEVICE_LEN + 1];
 bool appSeen = false;             // the app said HELLO since the port was last idle
 unsigned long lastDelivered = 0;  // last POS that made it into the port
+unsigned long lastBasePos = 0;
+uint32_t heardCount = 0;
 
 // ---------------- App commands ----------------
 void sendId() {
-  stk::sendId(Serial, stk::KIND_GPS, DEVICE_NAME, FIRMWARE_VERSION);
+  stk::sendId(Serial, stk::KIND_BASE, DEVICE_NAME, FIRMWARE_VERSION, net, device);
+}
+
+void sendTo(const char *type, const char *args) {
+  char body[stk::MAX_LINE];
+  snprintf(body, sizeof(body), "PSTK,%s,%s", type, args);
+  if (!lora.sendBody(net, body)) stk::sendError(Serial, "LoRa transmit failed");
 }
 
 // Returns true when the screen needs a redraw
 bool handleCommands() {
   bool changed = false;
   while (commands.poll(Serial)) {
+    const char *args = commands.args();
     if (commands.is("HELLO")) {
       sendId();
       changed = !appSeen;
       appSeen = true;
+    } else if (commands.is("TX")) {
+      // args is a whole inner sentence, e.g. "PSTK,SONDE,..."
+      if (strncmp(args, "PSTK,", 5) != 0 || !lora.sendBody(net, args)) stk::sendError(Serial, "TX failed");
+    } else if (commands.is("ACCEPT")) {
+      char reply[stk::DEVICE_LEN + stk::NET_LEN + 2];
+      snprintf(reply, sizeof(reply), "%.6s,%s", args, net);
+      sendTo("ACCEPT", reply);
+    } else if (commands.is("REJECT")) {
+      sendTo("REJECT", args);
+    } else if (commands.is("NEWNET")) {
+      stk::NetStore::random(net);
+      netStore.save(net);
+      sendId();
+      changed = true;
     } else {
       stk::sendError(Serial, (String("Unknown command ") + commands.type()).c_str());
     }
   }
   return changed;
+}
+
+// ---------------- LoRa ----------------
+// Returns true when the screen needs a redraw
+bool handleLora() {
+  bool changed = false;
+  while (lora.poll()) {
+    if (strcmp(lora.net(), net) == 0) {
+      stk::sendHeard(Serial, lora.rssi(), lora.snr(), lora.body());
+      heardCount++;
+      changed = true;
+    } else if (lora.is("JOIN")) {
+      // "device,callsign" from a satellite that isn't on our network yet
+      stk::Sentence("JOINREQ").field(lora.rssi(), 0).field(lora.snr(), 1).field(lora.args()).send(Serial);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+void broadcastBasePosition() {
+  const stk::Position &last = gps.last();
+  if (last.fix != stk::FIX_OK || millis() - lastBasePos < BASE_POS_MS) return;
+  lastBasePos = millis();
+  stk::Position p = last;
+  p.src = stk::SRC_BASE;
+  stk::LineBuffer line;
+  if (stk::sendPosition(line, p)) lora.sendLine(net, line.c_str());
 }
 
 bool portRead() { return lastDelivered && millis() - lastDelivered < LINK_TIMEOUT_MS; }
@@ -142,9 +204,15 @@ void drawScreen() {
   snprintf(s, sizeof(s), "HDOP %-8s%12s", hdop, hms);
   drawRow(4, ST77XX_WHITE, s);
 
-  if (portRead() && appSeen) drawRow(5, ST77XX_GREEN, "App connected");
-  else if (portRead()) drawRow(5, ST77XX_CYAN, "USB port open, no app");
-  else drawRow(5, GREY, "USB: waiting for the app");
+  const char *app = portRead() && appSeen ? "App" : portRead() ? "USB" : "---";
+  uint16_t color = portRead() && appSeen ? ST77XX_GREEN : portRead() ? ST77XX_CYAN : GREY;
+  if (!lora.ok()) {
+    snprintf(s, sizeof(s), "%s  LoRa ERROR %d", app, lora.error());
+    color = ST77XX_RED;
+  } else {
+    snprintf(s, sizeof(s), "%s  NET %s  rx %lu", app, net, (unsigned long)heardCount);
+  }
+  drawRow(5, color, s);
 }
 
 // ---------------- Setup / loop ----------------
@@ -165,8 +233,20 @@ void setup() {
   tft.setTextWrap(false);
   drawRow(0, ST77XX_WHITE, "Starting...");
 
-  GPSSerial.setRxBufferSize(4096);   // survive the pauses while the screen draws
+  GPSSerial.setRxBufferSize(4096);   // survive the pauses while the screen draws or LoRa sends
   GPSSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX, GPS_TX);
+
+  stk::deviceId(device);
+  netStore.load(net);
+  if (strcmp(net, stk::NO_NET) == 0) {   // first boot: start our own network
+    stk::NetStore::random(net);
+    netStore.save(net);
+  }
+  if (!lora.begin(LORA_POWER_DBM)) {
+    char msg[40];
+    snprintf(msg, sizeof(msg), "LoRa init failed: %d", lora.error());
+    stk::sendLog(Serial, msg);
+  }
 
   sendId();
 }
@@ -179,5 +259,7 @@ void loop() {
     redraw = true;
   }
   if (handleCommands()) redraw = true;
+  if (handleLora()) redraw = true;
+  broadcastBasePosition();
   if (redraw) drawScreen();
 }
