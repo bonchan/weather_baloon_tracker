@@ -21,7 +21,7 @@ export function toFix(data: Rs41Data, receivedAt: number, calibration?: Rs41Cali
   const { lat, lon, alt } = ecefToGeodetic(ecef.x, ecef.y, ecef.z)
   if (!(alt > -1000 && alt < 80_000)) return null
   const v = ecefToEnu(lat, lon, ecef.vx, ecef.vy, ecef.vz)
-  const ptu = calibration && data.ptu ? readPtu(calibration, data.ptu, alt) : {}
+  const ptu = calibration && data.ptu ? readPtu(calibration, data.ptu, alt, data.pressureTemp) : {}
   return {
     serial,
     frame,

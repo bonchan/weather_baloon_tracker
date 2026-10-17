@@ -80,7 +80,8 @@ export const es: Record<MessageKey, string> = {
   'decoder.noGps': 'Las tramas se decodifican pero todavía no traen posición GPS.',
   'decoder.calibration': 'Calibración',
   'decoder.calibrationDone': 'completa',
-  'decoder.calibrationHelp': 'La temperatura y la humedad aparecen a medida que la sonda manda su calibración, una parte por segundo (51 en total).',
+  'decoder.calibrationHelp':
+    'La temperatura, la humedad y (en las sondas con sensor de presión) la presión aparecen a medida que la sonda manda su calibración, una parte por segundo (51 en total).',
 
   'spectrum.title': 'Espectro',
   'spectrum.paused': 'en pausa',
@@ -130,6 +131,7 @@ export const es: Record<MessageKey, string> = {
   'map.speed': 'Velocidad',
   'map.temperature': 'Temperatura',
   'map.humidity': 'Humedad',
+  'map.pressure': 'Presión',
   'map.distance': 'Distancia',
   'map.bearing': 'Rumbo',
   'map.elevation': 'Elevación',

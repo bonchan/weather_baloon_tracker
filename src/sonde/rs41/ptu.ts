@@ -1,6 +1,7 @@
-// Temperature and humidity from the RS41 PTU block. The formulas are rs1729's
-// get_T and get_RH2adv (the latter after DF9DQ) in demod/mod/rs41mod.c, which is
-// what radiosonde_auto_rx runs (--ptu2) and so what SondeHub shows.
+// Temperature, humidity and pressure from the RS41 PTU block. The formulas are
+// rs1729's get_T, get_RH2adv and get_P (the last two after DF9DQ) in
+// demod/mod/rs41mod.c, which is what radiosonde_auto_rx runs (--ptu2) and so
+// what SondeHub shows.
 import { crc16 } from './protocol'
 
 /** Each frame carries one 16-byte piece of the sonde's calibration, numbered 0..50. */
@@ -17,6 +18,13 @@ const HUMIDITY_CAL = 117
 const HUMIDITY_MATRIX = 125
 const HUMIDITY_PRESSURE_COR = 678
 const HUMIDITY_TEMPERATURE_COR = 698
+/**
+ * Pressure polynomial in x (from the counts) and the sensor's temperature t: the
+ * t⁰ coefficients of x⁰..x⁵, the scale for x, then t¹ (x⁰..x³), t² (x⁰..x³), t³ (x⁰..x²).
+ */
+const PRESSURE_CAL = 606
+/** "RS41-SG", "RS41-SGP"…: a P in eighth place means the sonde has a pressure sensor. */
+const SONDE_TYPE = 0x218
 
 /** Resistance-to-temperature polynomial and per-sensor correction. */
 type TemperatureSensor = { poly: number; cal: number }
@@ -52,6 +60,11 @@ export class Rs41Calibration {
   floats(offset: number, count: number): number[] | null {
     for (let s = offset >> 4; s <= (offset + 4 * count - 1) >> 4; s++) if (!this.have[s]) return null
     return Array.from({ length: count }, (_, i) => this.view.getFloat32(offset + 4 * i, true))
+  }
+
+  /** The byte at `offset`, or null until its subframe has arrived. */
+  byte(offset: number): number | null {
+    return this.have[offset >> 4] ? this.bytes[offset] : null
   }
 }
 
@@ -120,6 +133,20 @@ export function humidity(
   return Math.max(0, Math.min(100, rh))
 }
 
+/**
+ * Air pressure, hPa, from the RS41-SGP's capacitive sensor; `sensorTemp` is the
+ * sensor's own temperature, °C. Undefined for sondes without one.
+ */
+export function pressure(cal: Rs41Calibration, [f, f1, f2]: Reading, sensorTemp: number): number | undefined {
+  const m = cal.floats(PRESSURE_CAL, 18)
+  if (cal.byte(SONDE_TYPE + 7) !== 'P'.charCodeAt(0) || !m || f === f1 || f1 === f2) return undefined
+  const x = m[6] / ((f - f1) / (f2 - f1))
+  const byPowerOfT = [m.slice(0, 6), m.slice(7, 11), m.slice(11, 15), m.slice(15, 18)]
+  let p = 0
+  byPowerOfT.forEach((row, k) => row.forEach((c, j) => (p += c * x ** j * sensorTemp ** k)))
+  return p
+}
+
 /** Standard atmosphere pressure at a height, hPa. Stands in for a pressure sensor, which most RS41s lack. */
 export function standardPressure(alt: number) {
   const gMR = (9.80665 * 0.0289644) / 8.31446
@@ -135,18 +162,21 @@ export function standardPressure(alt: number) {
 }
 
 /**
- * Air temperature (°C) and relative humidity (%) from the PTU block's counts:
- * air thermometer, humidity sensor, humidity sensor thermometer, three each.
- * Either is missing until the calibration parts it needs have arrived.
+ * Air temperature (°C), relative humidity (%) and, from an RS41-SGP, pressure
+ * (hPa) from the PTU block's counts: air thermometer, humidity sensor, humidity
+ * sensor thermometer and pressure sensor, three each; `pressureTemp` is the
+ * pressure sensor's temperature. Each is missing until the calibration parts it
+ * needs have arrived.
  */
-export function readPtu(cal: Rs41Calibration, counts: number[], alt: number) {
+export function readPtu(cal: Rs41Calibration, counts: number[], alt: number, pressureTemp?: number) {
   const reading = (i: number): Reading => [counts[i], counts[i + 1], counts[i + 2]]
   const finite = (v: number | undefined) => (v !== undefined && Number.isFinite(v) ? v : undefined)
   const air = finite(temperature(cal, reading(0)))
   const sensorTemp = finite(temperature(cal, reading(6), HUMIDITY_SENSOR))
+  const p = counts.length >= 12 && pressureTemp !== undefined ? finite(pressure(cal, reading(9), pressureTemp)) : undefined
   const rh =
     air !== undefined && sensorTemp !== undefined
-      ? finite(humidity(cal, reading(3), air, sensorTemp, standardPressure(alt)))
+      ? finite(humidity(cal, reading(3), air, sensorTemp, p ?? standardPressure(alt)))
       : undefined
-  return { temperature: air, humidity: rh }
+  return { temperature: air, humidity: rh, pressure: p }
 }

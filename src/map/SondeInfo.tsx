@@ -93,6 +93,12 @@ export function SondeInfo({ placingStation, onPlaceStation, follow, onFollow }: 
                 <dd className="mono">{fmt(last.humidity)} %</dd>
               </>
             )}
+            {last.pressure !== undefined && (
+              <>
+                <dt>{t('map.pressure')}</dt>
+                <dd className="mono">{fmt(last.pressure, 1)} hPa</dd>
+              </>
+            )}
             <dt>{t('map.burst')}</dt>
             <dd className="mono">{fmt(maxAlt)} m</dd>
             {link && station && (

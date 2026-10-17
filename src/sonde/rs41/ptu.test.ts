@@ -1,9 +1,26 @@
 import { describe, expect, it } from 'vitest'
 import { decodeFrame } from './frame'
 import { STANDARD_LENGTH } from './protocol'
-import { CALIBRATION_SUBFRAMES, humidity, HUMIDITY_SENSOR, readPtu, Rs41Calibration, standardPressure, temperature, type Reading } from './ptu'
+import {
+  CALIBRATION_SUBFRAMES,
+  humidity,
+  HUMIDITY_SENSOR,
+  pressure,
+  readPtu,
+  Rs41Calibration,
+  standardPressure,
+  temperature,
+  type Reading,
+} from './ptu'
 import { toFix } from './receiver'
-import { K1930308_CALIBRATION, K1930308_FIRST_SUBFRAME, K1930308_FRAMES, L1830070_CALIBRATION } from './testdata'
+import {
+  K1930308_CALIBRATION,
+  K1930308_FIRST_SUBFRAME,
+  K1930308_FRAMES,
+  L1830070_CALIBRATION,
+  X4332388_CALIBRATION,
+  X4332388_FRAMES,
+} from './testdata'
 
 const fromHex = (hex: string) => Uint8Array.from(hex.match(/../g)!, (h) => parseInt(h, 16))
 
@@ -13,7 +30,7 @@ function calibration(subframes: string[]) {
   return cal
 }
 
-const SONDES = { K1930308: K1930308_CALIBRATION, L1830070: L1830070_CALIBRATION }
+const SONDES = { K1930308: K1930308_CALIBRATION, L1830070: L1830070_CALIBRATION, X4332388: X4332388_CALIBRATION }
 
 // Expected values below come from rs41mod.c's get_T and get_RH2adv, ported line by
 // line with float32 arithmetic and run on the same data (with humidity's pressure
@@ -131,12 +148,14 @@ describe('RS41 temperature and humidity', () => {
     expect(data.badBlocks).toBe(0)
     expect(data.calibration?.index).toBe(46)
     expect(data.calibration?.data).toEqual(fromHex(K1930308_CALIBRATION[46]))
-    expect(data.ptu).toEqual(READINGS[0].counts)
+    // An RS41-SG sends the pressure counts too, as zeros.
+    expect(data.ptu).toEqual([...READINGS[0].counts, 0, 0, 0])
 
     const fix = toFix(data, 0, calibration(K1930308_CALIBRATION))!
     expect(fix.alt).toBeCloseTo(READINGS[0].alt, 0)
     expect(fix.temperature).toBeCloseTo(READINGS[0].temperature, 3)
     expect(fix.humidity).toBeCloseTo(READINGS[0].humidity, 3)
+    expect(fix.pressure).toBeUndefined()
   })
 
   it('leaves both out without calibration', () => {
@@ -156,5 +175,109 @@ describe('RS41 temperature and humidity', () => {
       expect(standardPressure(h - 0.01)).toBeCloseTo(p, 1)
       expect(standardPressure(h + 0.01)).toBeCloseTo(p, 1)
     }
+  })
+})
+
+// RS41-SGP X4332388 over its flight, with the pressure sensor's temperature. Expected values
+// come from the same float32 port, now with get_P and humidity corrected by the measured
+// pressure as rs41mod does; `sondehub` is what radiosonde_auto_rx stations (rs41mod) uploaded
+// to SondeHub for the frame, rounded to 0.01 hPa.
+const SGP_READINGS = [
+  {
+    frame: 1906,
+    alt: 2217.33,
+    counts: [167762, 127017, 184087, 555655, 484422, 552614, 171281, 127018, 184087, 328479, 293332, 416299],
+    pressureTemp: 33.87,
+    temperature: 5.869278,
+    humidity: 87.913292,
+    pressure: 784.657776,
+    sondehub: 784.66,
+  },
+  {
+    frame: 3004,
+    alt: 8304.92,
+    counts: [143260, 126831, 183941, 549838, 484589, 552869, 146808, 126831, 183942, 341186, 293352, 416423],
+    pressureTemp: 15.62,
+    temperature: -33.847023,
+    humidity: 24.880318,
+    pressure: 353.058655,
+    sondehub: 353.06,
+  },
+  {
+    frame: 3977,
+    alt: 14560.24,
+    counts: [131183, 126717, 183887, 548103, 485113, 553523, 134593, 126719, 183887, 353955, 293495, 416711],
+    pressureTemp: -4.09,
+    temperature: -53.15379,
+    humidity: 1.448254,
+    pressure: 135.869095,
+    sondehub: 135.87,
+  },
+  {
+    frame: 5325,
+    alt: 22240.39,
+    counts: [133366, 126700, 183885, 548409, 485350, 553806, 136538, 126701, 183884, 362744, 293577, 416852],
+    pressureTemp: -11.45,
+    temperature: -49.621941,
+    humidity: 0.896492,
+    pressure: 41.543789,
+    sondehub: 41.54,
+  },
+  {
+    frame: 6536,
+    alt: 29967.33,
+    counts: [139353, 126708, 183889, 548442, 485303, 553751, 142768, 126710, 183889, 366076, 293574, 416845],
+    pressureTemp: -10.97,
+    temperature: -39.992363,
+    humidity: 0.489684,
+    pressure: 12.879248,
+    sondehub: 12.88,
+  },
+]
+
+describe('RS41-SGP pressure', () => {
+  it.each(SGP_READINGS)('X4332388 #$frame', (r) => {
+    const ptu = readPtu(calibration(X4332388_CALIBRATION), r.counts, r.alt, r.pressureTemp)
+    expect(ptu.pressure).toBeCloseTo(r.pressure, 3)
+    expect(ptu.pressure).toBeCloseTo(r.sondehub, 2)
+    expect(ptu.temperature).toBeCloseTo(r.temperature, 3)
+    expect(ptu.humidity).toBeCloseTo(r.humidity, 3)
+  })
+
+  it('needs a sonde that says it has the sensor', () => {
+    const { counts, alt, pressureTemp } = SGP_READINGS[1]
+    // K1930308 is an RS41-SG: whatever sits where the coefficients would be, there is no sensor.
+    expect(readPtu(calibration(K1930308_CALIBRATION), counts, alt, pressureTemp).pressure).toBeUndefined()
+    expect(pressure(calibration(X4332388_CALIBRATION), [counts[9], counts[10], counts[11]], pressureTemp)).toBeDefined()
+  })
+
+  it('waits for subframe 33 (the sonde type) and 37-42 (the coefficients)', () => {
+    const { counts, alt, pressureTemp } = SGP_READINGS[1]
+    const cal = new Rs41Calibration()
+    let first: number | undefined
+    X4332388_CALIBRATION.forEach((hex, index) => {
+      cal.add(index, fromHex(hex))
+      if (readPtu(cal, counts, alt, pressureTemp).pressure !== undefined) first ??= index
+    })
+    expect(first).toBe(42)
+
+    const withoutType = new Rs41Calibration()
+    X4332388_CALIBRATION.forEach((hex, index) => {
+      if (index !== 33) withoutType.add(index, fromHex(hex))
+    })
+    expect(readPtu(withoutType, counts, alt, pressureTemp).pressure).toBeUndefined()
+  })
+
+  it('reads all twelve counts and the sensor temperature out of a real frame', () => {
+    const data = decodeFrame(fromHex(X4332388_FRAMES[3004]), STANDARD_LENGTH)
+    expect(data.serial).toBe('X4332388')
+    expect(data.badBlocks).toBe(0)
+    expect(data.ptu).toEqual(SGP_READINGS[1].counts)
+    expect(data.pressureTemp).toBe(SGP_READINGS[1].pressureTemp)
+
+    const fix = toFix(data, 0, calibration(X4332388_CALIBRATION))!
+    expect(fix.alt).toBeCloseTo(SGP_READINGS[1].alt, 1)
+    expect(fix.pressure).toBeCloseTo(SGP_READINGS[1].pressure, 3)
+    expect(fix.humidity).toBeCloseTo(SGP_READINGS[1].humidity, 3)
   })
 })

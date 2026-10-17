@@ -40,7 +40,7 @@ export type DecoderStatus = {
   gpsFix: boolean
   /** Where the sonde is relative to the marker, Hz, once a frame decoded. */
   offset: number | null
-  /** Calibration subframes collected for this sonde, out of 51; temperature and humidity need them. */
+  /** Calibration subframes collected for this sonde, out of 51; temperature, humidity and pressure need them. */
   calibration: number | null
 }
 

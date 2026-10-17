@@ -19,6 +19,8 @@ export type SondeFix = {
   heading?: number
   temperature?: number
   humidity?: number
+  /** Measured, hPa; only sondes with a pressure sensor (RS41-SGP) send it. */
+  pressure?: number
   /** Date.now() when the frame was decoded. */
   receivedAt: number
 }

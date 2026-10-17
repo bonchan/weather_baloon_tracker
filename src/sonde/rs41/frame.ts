@@ -44,8 +44,13 @@ export type Rs41Data = {
   satellites?: number
   /** This frame's piece of the sonde's calibration (see ptu.ts). */
   calibration?: { index: number; data: Uint8Array }
-  /** Raw PTU counts: air temperature, humidity, humidity sensor temperature, each with two references. */
+  /**
+   * Raw PTU counts, each with two references: air temperature, humidity, humidity
+   * sensor temperature and, except from an RS41-SGM, pressure (zeros without a sensor).
+   */
   ptu?: number[]
+  /** Pressure sensor temperature, °C. */
+  pressureTemp?: number
   /** RS41-SGM with encryption: no position to be had. */
   encrypted: boolean
 }
@@ -141,7 +146,9 @@ export function decodeFrame(frame: Uint8Array, length: number): Rs41Data {
       case BLOCK_PTU:
       case BLOCK_SGM_TU:
         if (len < 27) break
-        data.ptu = Array.from({ length: 9 }, (_, i) => u24(frame, start + 3 * i))
+        // The SGM's short block stops after nine counts.
+        data.ptu = Array.from({ length: len >= 36 ? 12 : 9 }, (_, i) => u24(frame, start + 3 * i))
+        if (len >= 40) data.pressureTemp = i16(frame, start + 38) / 100
         break
       case BLOCK_GPS_INFO:
         if (len < 6) break

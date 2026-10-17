@@ -78,7 +78,8 @@ export const en = {
   'decoder.noGps': 'Frames decode but carry no GPS position yet.',
   'decoder.calibration': 'Calibration',
   'decoder.calibrationDone': 'complete',
-  'decoder.calibrationHelp': 'Temperature and humidity appear as the sonde sends its calibration, one piece per second (51 in all).',
+  'decoder.calibrationHelp':
+    'Temperature, humidity and (on sondes with a pressure sensor) pressure appear as the sonde sends its calibration, one piece per second (51 in all).',
 
   'spectrum.title': 'Spectrum',
   'spectrum.paused': 'paused',
@@ -128,6 +129,7 @@ export const en = {
   'map.speed': 'Ground speed',
   'map.temperature': 'Temperature',
   'map.humidity': 'Humidity',
+  'map.pressure': 'Pressure',
   'map.distance': 'Distance',
   'map.bearing': 'Bearing',
   'map.elevation': 'Elevation',
