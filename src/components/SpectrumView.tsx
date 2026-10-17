@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react'
 import { formatDb, formatMHz, formatOffset } from '../format'
+import { useI18n, type MessageKey } from '../i18n'
 import { FFT_SIZES, sdr, type SdrState } from '../sdr/controller'
 import { SpectrumRenderer, type Levels } from './spectrumRenderer'
 
@@ -23,13 +24,14 @@ function saveLevels(levels: Levels) {
   }
 }
 
-const EMPTY_MESSAGES: Partial<Record<SdrState['phase'], string>> = {
-  unsupported: 'WebUSB is not available in this browser',
-  disconnected: 'Connect the RTL-SDR to see the spectrum',
-  connecting: 'Opening the dongle…',
+const EMPTY_MESSAGES: Partial<Record<SdrState['phase'], MessageKey>> = {
+  unsupported: 'spectrum.empty.unsupported',
+  disconnected: 'spectrum.empty.disconnected',
+  connecting: 'spectrum.empty.connecting',
 }
 
 export function SpectrumView({ state }: { state: SdrState }) {
+  const { t } = useI18n()
   const spectrumRef = useRef<HTMLCanvasElement>(null)
   const waterfallRef = useRef<HTMLCanvasElement>(null)
   const rendererRef = useRef<SpectrumRenderer | null>(null)
@@ -105,18 +107,18 @@ export function SpectrumView({ state }: { state: SdrState }) {
 
   const hoverHz = hoverFraction === null ? null : start + hoverFraction * span
   const markerFraction = marker === null ? null : (marker - start) / span
-  const emptyMessage = hasData ? undefined : EMPTY_MESSAGES[phase]
+  const emptyKey = hasData ? undefined : EMPTY_MESSAGES[phase]
   const shownRange = levels.auto && range ? range : levels
 
   return (
     <div className="spectrum">
       <div className="spectrum-toolbar">
         <div className="spectrum-title">
-          <h2>Spectrum</h2>
+          <h2>{t('spectrum.title')}</h2>
           <span className="mono small muted">
             {formatMHz(start)} – {formatMHz(start + span)} MHz · RBW {Math.round(span / fftSize)} Hz
           </span>
-          {phase === 'connected' && hasData && <span className="badge">paused</span>}
+          {phase === 'connected' && hasData && <span className="badge">{t('spectrum.paused')}</span>}
         </div>
 
         <div className="spectrum-readout mono small" aria-live="off">
@@ -127,13 +129,13 @@ export function SpectrumView({ state }: { state: SdrState }) {
               <span className="muted">{formatOffset(hoverHz - settings.centerFrequency)}</span>
             </>
           ) : (
-            <span className="muted">Hover to read, click to mark</span>
+            <span className="muted">{t('spectrum.hoverHint')}</span>
           )}
         </div>
 
         <div className="spectrum-controls">
           <label className="inline-field">
-            FFT
+            {t('spectrum.fft')}
             <select value={fftSize} onChange={(e) => sdr.setFftSize(Number(e.target.value))}>
               {FFT_SIZES.map((n) => (
                 <option key={n} value={n}>
@@ -144,10 +146,10 @@ export function SpectrumView({ state }: { state: SdrState }) {
           </label>
           <label className="toggle">
             <input type="checkbox" checked={levels.auto} onChange={(e) => setLevels({ ...levels, auto: e.target.checked })} />
-            Auto levels
+            {t('spectrum.autoLevels')}
           </label>
           <label className="inline-field">
-            min
+            {t('spectrum.min')}
             <input
               type="number"
               className="mono narrow"
@@ -158,7 +160,7 @@ export function SpectrumView({ state }: { state: SdrState }) {
             />
           </label>
           <label className="inline-field">
-            max
+            {t('spectrum.max')}
             <input
               type="number"
               className="mono narrow"
@@ -188,7 +190,7 @@ export function SpectrumView({ state }: { state: SdrState }) {
             <span className="marker-tag mono">{formatMHz(marker!)}</span>
           </div>
         )}
-        {emptyMessage && <div className="spectrum-empty">{emptyMessage}</div>}
+        {emptyKey && <div className="spectrum-empty">{t(emptyKey)}</div>}
       </div>
     </div>
   )

@@ -1,21 +1,27 @@
+import { lazy, Suspense, useState } from 'react'
 import { DevicePanel } from './components/DevicePanel'
 import { SpectrumView } from './components/SpectrumView'
 import { StatsPanel } from './components/StatsPanel'
 import { TuningPanel } from './components/TuningPanel'
 import { formatMHz } from './format'
-import type { Phase } from './sdr/controller'
+import { LANGUAGES, setLang, useI18n, type Lang } from './i18n'
 import { useSdrState } from './sdr/useSdr'
 
-const PHASE_LABEL: Record<Phase, string> = {
-  unsupported: 'No WebUSB',
-  disconnected: 'Disconnected',
-  connecting: 'Connecting',
-  connected: 'Connected',
-  streaming: 'Receiving',
-}
+// MapLibre is large; load it the first time the map tab opens.
+const MapView = lazy(() => import('./map/MapView'))
+
+type Tab = 'spectrum' | 'map'
 
 export default function App() {
   const state = useSdrState()
+  const { t, lang } = useI18n()
+  const [tab, setTab] = useState<Tab>('spectrum')
+  const [mapOpened, setMapOpened] = useState(false)
+
+  const openTab = (next: Tab) => {
+    setTab(next)
+    if (next === 'map') setMapOpened(true)
+  }
 
   return (
     <div className="app">
@@ -27,12 +33,35 @@ export default function App() {
           </svg>
           <h1>Sonde Tracker</h1>
         </div>
-        <div className={`status status-${state.phase}`}>
-          <span className="status-dot" aria-hidden />
-          {PHASE_LABEL[state.phase]}
-          {state.phase === 'streaming' && (
-            <span className="mono muted">· {formatMHz(state.settings.centerFrequency)} MHz</span>
-          )}
+
+        <nav className="tabs" role="tablist">
+          {(['spectrum', 'map'] as const).map((id) => (
+            <button key={id} role="tab" aria-selected={tab === id} className="tab" onClick={() => openTab(id)}>
+              {t(id === 'spectrum' ? 'tab.spectrum' : 'tab.map')}
+            </button>
+          ))}
+        </nav>
+
+        <div className="topbar-right">
+          <div className={`status status-${state.phase}`}>
+            <span className="status-dot" aria-hidden />
+            {t(`phase.${state.phase}`)}
+            {state.phase === 'streaming' && (
+              <span className="mono muted">· {formatMHz(state.settings.centerFrequency)} MHz</span>
+            )}
+          </div>
+          <select
+            className="lang-select"
+            value={lang}
+            onChange={(e) => setLang(e.target.value as Lang)}
+            aria-label={t('lang.label')}
+          >
+            {LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.label}
+              </option>
+            ))}
+          </select>
         </div>
       </header>
 
@@ -43,7 +72,17 @@ export default function App() {
       </aside>
 
       <main className="main">
-        <SpectrumView state={state} />
+        {/* Both views stay mounted so the waterfall and map keep running in the background. */}
+        <div className="view" hidden={tab !== 'spectrum'}>
+          <SpectrumView state={state} />
+        </div>
+        {mapOpened && (
+          <div className="view" hidden={tab !== 'map'}>
+            <Suspense fallback={<div className="spectrum-empty">{t('map.loading')}</div>}>
+              <MapView visible={tab === 'map'} />
+            </Suspense>
+          </div>
+        )}
       </main>
     </div>
   )

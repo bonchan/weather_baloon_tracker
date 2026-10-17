@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { useI18n } from '../i18n'
 import type { SdrProblem } from '../sdr/errors'
 
 export function Panel({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
@@ -14,18 +15,21 @@ export function Panel({ title, actions, children }: { title: string; actions?: R
 }
 
 export function ProblemCallout({ problem, onDismiss }: { problem: SdrProblem; onDismiss?: () => void }) {
+  const { t } = useI18n()
   return (
     <div className="callout callout-danger" role="alert">
       <div className="callout-title">
-        <strong>{problem.title}</strong>
+        <strong>{t(problem.title)}</strong>
         {onDismiss && (
-          <button className="icon-btn" onClick={onDismiss} aria-label="Dismiss">
+          <button className="icon-btn" onClick={onDismiss} aria-label={t('common.dismiss')}>
             ×
           </button>
         )}
       </div>
-      <p className="mono small">{problem.detail}</p>
-      {problem.hint && <p>{problem.hint}</p>}
+      {problem.detail && <p className="mono small">{problem.detail}</p>}
+      {problem.hints.map((hint) => (
+        <p key={hint}>{t(hint)}</p>
+      ))}
     </div>
   )
 }

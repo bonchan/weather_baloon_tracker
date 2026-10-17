@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { formatDb, formatDuration, formatMHz, formatRate } from '../format'
+import { useI18n } from '../i18n'
 import type { SdrState } from '../sdr/controller'
 import { Panel } from './Panel'
 
@@ -19,13 +20,14 @@ function useNow(active: boolean) {
 }
 
 export function StatsPanel({ state }: { state: SdrState }) {
+  const { t } = useI18n()
   const { stats, signal, settings, phase } = state
   const now = useNow(phase === 'streaming')
 
   if (phase !== 'streaming' || !stats) {
     return (
-      <Panel title="Signal">
-        <p className="small muted">Live numbers show up while streaming.</p>
+      <Panel title={t('signal.title')}>
+        <p className="small muted">{t('signal.idle')}</p>
       </Panel>
     )
   }
@@ -36,28 +38,28 @@ export function StatsPanel({ state }: { state: SdrState }) {
   const rateClass = warming ? '' : ratio >= RATE_OK ? 'ok' : 'warn'
 
   return (
-    <Panel title="Signal">
+    <Panel title={t('signal.title')}>
       <dl className="kv">
-        <dt>USB rate</dt>
+        <dt>{t('signal.usbRate')}</dt>
         <dd className={`mono ${rateClass}`}>
-          {warming ? 'measuring…' : `${formatRate(stats.measuredRate)} (${Math.round(ratio * 100)}%)`}
+          {warming ? t('signal.measuring') : `${formatRate(stats.measuredRate)} (${Math.round(ratio * 100)}%)`}
         </dd>
-        <dt>Uptime</dt>
+        <dt>{t('signal.uptime')}</dt>
         <dd className="mono">{formatDuration(now - stats.startedAt)}</dd>
-        <dt>Blocks</dt>
+        <dt>{t('signal.blocks')}</dt>
         <dd className="mono">
           {stats.blocks.toLocaleString()}
-          {stats.droppedBlocks > 0 && <span className="warn"> · {stats.droppedBlocks} skipped by display</span>}
+          {stats.droppedBlocks > 0 && <span className="warn"> · {t('signal.skipped', { count: stats.droppedBlocks })}</span>}
         </dd>
         {signal && (
           <>
-            <dt>Noise floor</dt>
+            <dt>{t('signal.noiseFloor')}</dt>
             <dd className="mono">{formatDb(signal.noiseFloorDb)}</dd>
-            <dt>Strongest</dt>
+            <dt>{t('signal.strongest')}</dt>
             <dd className="mono">
-              {formatMHz(signal.peakFrequency)} MHz · {formatDb(signal.peakDb - signal.noiseFloorDb, 'dB')} SNR
+              {formatMHz(signal.peakFrequency)} MHz · {formatDb(signal.peakDb - signal.noiseFloorDb, 'dB')} {t('signal.snr')}
             </dd>
-            <dt>ADC clipping</dt>
+            <dt>{t('signal.clipping')}</dt>
             <dd className={`mono ${signal.clipFraction > CLIP_WARN ? 'warn' : 'ok'}`}>
               {(signal.clipFraction * 100).toFixed(3)}%
             </dd>
@@ -66,7 +68,7 @@ export function StatsPanel({ state }: { state: SdrState }) {
       </dl>
       {!warming && ratio < RATE_OK && (
         <p className="small warn">
-          Samples are being lost. Try a lower sample rate, another USB port, or close other heavy tabs.
+          {t('signal.losing')}
         </p>
       )}
     </Panel>

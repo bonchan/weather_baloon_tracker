@@ -2,7 +2,9 @@
 
 Receive weather balloon radiosondes (400.15–406 MHz) with an RTL-SDR, straight from the browser over WebUSB. No drivers, servers or Python on the receive path.
 
-Current state: **connects to the dongle and shows a live spectrum + waterfall.** The RS41 decoder, map and logging come next.
+Current state: **connects to the dongle, live spectrum + waterfall, offline map with station and track display (try *Demo flight*), English/Spanish UI.** The RS41 decoder and logging come next.
+
+**Everything runs offline.** All code, fonts and map icons are in this repo or in `node_modules`. The only thing you prepare at home is the map file (below).
 
 ## Run it
 
@@ -57,6 +59,26 @@ RTL2832U dongles with an R820T, R820T2, R860 or R828D tuner: RTL-SDR Blog V3/V4,
 
 RS41 sondes show up as a narrow signal about 10 kHz wide that transmits continuously. Sondes launch around 11:15 UTC for the 12Z sounding, and on some days around 23:15 UTC. Check https://sondehub.org for recent flights near you to learn the type and frequency.
 
+## Offline map
+
+The map uses a [Protomaps](https://protomaps.com) vector extract (`.pmtiles`, one file) rendered by MapLibre. Fonts and icons are already in `public/map-assets` (re-download with `pnpm map:assets` if needed). Without the file, the map still draws the station and sonde tracks on a blank background.
+
+Prepare it once, with internet:
+
+1. Download the `pmtiles` tool for your OS from https://github.com/protomaps/go-pmtiles/releases (on Windows, `pmtiles_*_Windows_x86_64.zip`) and unzip `pmtiles.exe`.
+2. Pick a recent daily build from https://maps.protomaps.com/builds (for example `20261015.pmtiles`).
+3. Cut out your area. This box covers Neuquén, Río Negro and the usual eastward drift. Add `--dry-run` first to see the size.
+
+   ```bash
+   pmtiles extract https://build.protomaps.com/20261015.pmtiles public/maps/basemap.pmtiles --bbox=-71.5,-41.5,-66,-36 --maxzoom=13
+   ```
+
+4. Reload the app. The map is now fully offline. `public/maps/*.pmtiles` is git-ignored, so the file stays local.
+
+Lower `--maxzoom` (11 or 12) for a much smaller file; 13 is enough to read street names when chasing a landing.
+
+**Station:** click *Place station* and then the map, or *Use my location*. Distance, bearing and elevation to the sonde are measured from there.
+
 ## Antenna
 
 A quarter-wave vertical cut for 403 MHz has a radiator of about **18 cm** (plus 3–4 radials of the same length angled down). Height and a clear horizon matter more than anything else, especially for catching the landing.
@@ -75,11 +97,15 @@ pnpm build       # typecheck + production build
 - `src/sdr/controller.ts`: app-level owner of the dongle and the DSP worker. React reads it via `useSyncExternalStore`.
 - `src/dsp/`: runs in a Web Worker. FFT, averaged power spectrum, noise floor, peak, clipping.
 - `src/components/`: UI. `spectrumRenderer.ts` draws the spectrum and waterfall on canvases outside React.
+- `src/map/`: offline MapLibre map (PMTiles basemap, local glyphs/sprites), sonde info card.
+- `src/sonde/`: sonde track store (`addFix()` is what the decoder will call) and the demo flight.
+- `src/i18n/`: translations. Add a key to `en.ts` and TypeScript makes you add it to `es.ts` too.
 
 ### Roadmap
 
 1. ~~Connect RTL-SDR, live spectrum/waterfall~~
-2. Channelizer: mix the marker to baseband, filter, decimate to 48 kHz, FM-demodulate
-3. RS41 decoder (rs1729 `rs41mod.c` → WebAssembly): position, altitude, PTU, serial
-4. Map (Leaflet + OSM) with track and landing prediction (SondeHub Tawhiri)
-5. Logging (IndexedDB) and export (CSV / GPX / KML)
+2. ~~Offline map, station, track display, English/Spanish~~
+3. Channelizer: mix the marker to baseband, filter, decimate to 48 kHz, FM-demodulate
+4. RS41 decoder: frame sync, descrambling, Reed-Solomon, CRC, position/altitude/PTU/serial → `sondes.addFix()`
+5. Landing prediction: offline estimate from the descent rate and the winds measured on the way up
+6. Logging (IndexedDB) and export (CSV / GPX / KML)

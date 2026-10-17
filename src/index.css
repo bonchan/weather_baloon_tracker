@@ -542,3 +542,125 @@ select:disabled {
   color: var(--muted);
   pointer-events: none;
 }
+
+/* ---------- tabs & language ---------- */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+}
+.tab {
+  border: 0;
+  background: transparent;
+  padding: 5px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 550;
+}
+.tab[aria-selected='true'] {
+  background: var(--panel-raised);
+  color: var(--text);
+}
+.tab:focus-visible,
+.lang-select:focus-visible {
+  outline: 2px solid var(--accent);
+}
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.lang-select {
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.view {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+.view[hidden] {
+  display: none;
+}
+
+/* ---------- map ---------- */
+
+.map-view {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #0b1220;
+}
+/* More specific than maplibre-gl.css, which loads later and sets position: relative. */
+.map-view > .map-canvas {
+  position: absolute;
+  inset: 0;
+}
+.map-canvas.placing .maplibregl-canvas {
+  cursor: crosshair;
+}
+.map-card {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 290px;
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+  background: rgba(17, 24, 33, 0.92);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  backdrop-filter: blur(6px);
+}
+.map-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sonde-serial {
+  font-size: 16px;
+  color: #ff9fe4;
+}
+.map-card-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.map-notice {
+  position: absolute;
+  right: 12px;
+  bottom: 36px;
+  max-width: 340px;
+  margin: 0;
+  border-color: rgba(245, 185, 66, 0.4);
+  background: rgba(17, 24, 33, 0.94);
+}
+.maplibregl-ctrl-attrib {
+  font-size: 10px;
+}
+
+@media (max-width: 700px) {
+  .map-card {
+    width: auto;
+    right: 12px;
+    max-height: 45%;
+  }
+  .topbar {
+    flex-wrap: wrap;
+  }
+}

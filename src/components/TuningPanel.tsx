@@ -1,5 +1,6 @@
 import { useState, type KeyboardEvent } from 'react'
 import { formatMHz, formatOffset } from '../format'
+import { useI18n } from '../i18n'
 import { sdr, type SdrState } from '../sdr/controller'
 import { SONDE_BAND } from './spectrumRenderer'
 import { Panel } from './Panel'
@@ -21,6 +22,7 @@ function bandHops(sampleRate: number): number[] {
 }
 
 function FrequencyInput({ value, onCommit }: { value: number; onCommit: (hz: number) => void }) {
+  const { t } = useI18n()
   const [draft, setDraft] = useState<string | null>(null)
 
   const commit = (text: string) => {
@@ -58,7 +60,7 @@ function FrequencyInput({ value, onCommit }: { value: number; onCommit: (hz: num
         onChange={(e) => setDraft(e.target.value)}
         onBlur={(e) => draft !== null && commit(e.currentTarget.value)}
         onKeyDown={onKeyDown}
-        aria-label="Center frequency in MHz"
+        aria-label={t('tuning.centerAria')}
       />
       <span className="unit">MHz</span>
     </div>
@@ -66,6 +68,7 @@ function FrequencyInput({ value, onCommit }: { value: number; onCommit: (hz: num
 }
 
 export function TuningPanel({ state }: { state: SdrState }) {
+  const { t } = useI18n()
   const { settings, marker } = state
   const [manualGain, setManualGain] = useState(settings.gain ?? 38)
   const disabled = state.phase === 'unsupported'
@@ -74,16 +77,16 @@ export function TuningPanel({ state }: { state: SdrState }) {
   const markerInView = markerOffset !== null && Math.abs(markerOffset) <= settings.sampleRate / 2
 
   return (
-    <Panel title="Tuning">
+    <Panel title={t('tuning.title')}>
       <div className="stack">
         <label className="field">
-          <span className="field-label">Center frequency</span>
+          <span className="field-label">{t('tuning.center')}</span>
           <FrequencyInput value={settings.centerFrequency} onCommit={(hz) => sdr.updateSettings({ centerFrequency: hz })} />
-          <span className="small muted">↑/↓ steps 10 kHz, Shift for 100 kHz</span>
+          <span className="small muted">{t('tuning.centerHelp')}</span>
         </label>
 
         <div className="field">
-          <span className="field-label">Sonde band hops</span>
+          <span className="field-label">{t('tuning.hops')}</span>
           <div className="chips">
             {bandHops(settings.sampleRate).map((hz) => (
               <button
@@ -98,7 +101,7 @@ export function TuningPanel({ state }: { state: SdrState }) {
         </div>
 
         <label className="field">
-          <span className="field-label">Sample rate</span>
+          <span className="field-label">{t('tuning.sampleRate')}</span>
           <select
             value={settings.sampleRate}
             disabled={disabled}
@@ -106,7 +109,7 @@ export function TuningPanel({ state }: { state: SdrState }) {
           >
             {SAMPLE_RATES.map((r) => (
               <option key={r} value={r}>
-                {(r / 1e6).toFixed(3)} MS/s{r > STABLE_RATE_LIMIT ? ' (may drop samples)' : ''}
+                {(r / 1e6).toFixed(3)} MS/s{r > STABLE_RATE_LIMIT ? ` ${t('tuning.mayDrop')}` : ''}
               </option>
             ))}
           </select>
@@ -114,14 +117,14 @@ export function TuningPanel({ state }: { state: SdrState }) {
 
         <div className="field">
           <div className="field-row">
-            <span className="field-label">Gain</span>
+            <span className="field-label">{t('tuning.gain')}</span>
             <label className="toggle">
               <input
                 type="checkbox"
                 checked={settings.gain === null}
                 onChange={(e) => sdr.updateSettings({ gain: e.target.checked ? null : manualGain })}
               />
-              Auto (AGC)
+              {t('tuning.agc')}
             </label>
           </div>
           <div className="slider-row">
@@ -137,15 +140,15 @@ export function TuningPanel({ state }: { state: SdrState }) {
                 setManualGain(g)
                 sdr.updateSettings({ gain: g })
               }}
-              aria-label="Manual gain in dB"
+              aria-label={t('tuning.gainAria')}
             />
-            <span className="mono value">{settings.gain === null ? 'auto' : `${settings.gain.toFixed(1)} dB`}</span>
+            <span className="mono value">{settings.gain === null ? t('tuning.auto') : `${settings.gain.toFixed(1)} dB`}</span>
           </div>
-          <span className="small muted">If ADC clipping shows up under Signal, lower the gain.</span>
+          <span className="small muted">{t('tuning.gainHelp')}</span>
         </div>
 
         <label className="field">
-          <span className="field-label">Frequency correction</span>
+          <span className="field-label">{t('tuning.ppm')}</span>
           <div className="freq-input">
             <input
               className="mono"
@@ -170,36 +173,36 @@ export function TuningPanel({ state }: { state: SdrState }) {
             onChange={(e) => sdr.updateSettings({ biasTee: e.target.checked })}
           />
           <span>
-            Bias tee <span className="small muted">— 4.5 V up the coax for an LNA (RTL-SDR Blog V3/V4)</span>
+            {t('tuning.biasTee')} <span className="small muted">— {t('tuning.biasTeeHelp')}</span>
           </span>
         </label>
 
         <div className="field">
-          <span className="field-label">Marker</span>
+          <span className="field-label">{t('tuning.marker')}</span>
           {marker === null ? (
-            <span className="small muted">Click the spectrum or waterfall to mark a signal.</span>
+            <span className="small muted">{t('tuning.markerHelp')}</span>
           ) : (
             <>
               <div className="marker-readout">
                 <span className="mono">{formatMHz(marker)} MHz</span>
                 <span className="small muted">
-                  {markerInView ? `${formatOffset(markerOffset!)} from center` : 'outside the current view'}
+                  {markerInView ? t('tuning.fromCenter', { offset: formatOffset(markerOffset!) }) : t('tuning.outsideView')}
                 </span>
               </div>
               <div className="row">
                 <button
                   className="btn btn-small"
-                  title="Retunes so the marker sits just right of center, clear of the DC spike"
+                  title={t('tuning.centerOnMarkerTip')}
                   onClick={() =>
                     sdr.updateSettings({
                       centerFrequency: Math.round((marker - settings.sampleRate / 8) / 1000) * 1000,
                     })
                   }
                 >
-                  Center on marker
+                  {t('tuning.centerOnMarker')}
                 </button>
                 <button className="btn btn-small btn-ghost" onClick={() => sdr.setMarker(null)}>
-                  Clear
+                  {t('common.clear')}
                 </button>
               </div>
             </>
