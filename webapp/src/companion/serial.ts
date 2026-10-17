@@ -189,16 +189,37 @@ class CompanionLink {
   }
 
   /** Asks a companion for its ID line. A plain NMEA GPS just ignores it. */
-  private async hello(port: SerialPort) {
-    const writer = port.writable?.getWriter()
-    if (!writer) return
-    try {
-      await writer.write(new TextEncoder().encode(sentence('PSTK,HELLO')))
-    } catch {
-      // not fatal: the device also sends its ID at power-on
-    } finally {
-      writer.releaseLock()
-    }
+  private hello(port: SerialPort): Promise<void> {
+    // not fatal when it fails: the device also sends its ID at power-on
+    return this.write(port, 'PSTK,HELLO').then(() => {})
+  }
+
+  /** Sends a command (a sentence body like "PSTK,ACCEPT,A1B2C3") to a device. False when it couldn't. */
+  send(deviceId: number, body: string): Promise<boolean> {
+    const port = this.ports.get(deviceId)
+    if (!port || !this.links.has(port)) return Promise.resolve(false)
+    return this.write(port, body)
+  }
+
+  /** Writes go one after another: a port has a single writer at a time. */
+  private writes = new WeakMap<SerialPort, Promise<boolean>>()
+
+  private write(port: SerialPort, body: string): Promise<boolean> {
+    const previous = this.writes.get(port) ?? Promise.resolve(true)
+    const next = previous.then(async () => {
+      const writer = port.writable?.getWriter()
+      if (!writer) return false
+      try {
+        await writer.write(new TextEncoder().encode(sentence(body)))
+        return true
+      } catch {
+        return false
+      } finally {
+        writer.releaseLock()
+      }
+    })
+    this.writes.set(port, next)
+    return next
   }
 
   private handlePlug = (event: Event) => {

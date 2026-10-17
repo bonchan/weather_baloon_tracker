@@ -28,6 +28,20 @@ export const en = {
   'receiver.start': 'Start stream',
   'receiver.disconnect': 'Disconnect',
 
+  'team.title': 'LoRa team',
+  'team.noBase':
+    'Connect the base station (Heltec Wireless Tracker with the base firmware) under GPS companions to run the team network.',
+  'team.network': 'Network',
+  'team.newNet': 'New network',
+  'team.newNetConfirm': 'Start a new network? Every satellite will have to ask to join again.',
+  'team.requests': 'Asking to join',
+  'team.accept': 'Accept',
+  'team.reject': 'Reject',
+  'team.members': 'Heard over LoRa ({count})',
+  'team.noMembers': 'Nobody heard yet. Satellites appear once they join and send their position.',
+  'team.ago': '{s} s ago',
+  'team.relayHelp': 'The base station relays the team and sends the balloon to everyone over LoRa.',
+
   'gps.title': 'GPS companions',
   'gps.unsupported': 'USB GPS devices need Web Serial: Chrome or Edge on a computer.',
   'gps.intro':

@@ -18,6 +18,9 @@ export type CompanionDevice = {
   kind?: string
   name?: string
   firmware?: string
+  /** LoRa devices: the team network id (NO_NET when none) and the chip id. */
+  net?: string
+  loraId?: string
   /** 'pstk' once it speaks the Sonde Tracker link, 'nmea' for a plain GPS. */
   protocol: 'pstk' | 'nmea' | null
   /** Of its own GPS. */
@@ -54,12 +57,27 @@ export type RemoteTracker = {
   snr?: number
   receivedAt: number
   deviceId: number
+  /** Fix time from the sender, Unix s. */
+  utc?: number
+}
+
+/** A satellite asking the base station to join the team network. */
+export type JoinRequest = {
+  /** The satellite's chip id. */
+  loraId: string
+  callsign: string
+  rssi?: number
+  snr?: number
+  receivedAt: number
+  /** The base station that heard it. */
+  deviceId: number
 }
 
 export type CompanionState = {
   devices: CompanionDevice[]
   me: MyPosition | null
   trackers: Record<string, RemoteTracker>
+  joinRequests: JoinRequest[]
 }
 
 const MAX_LOGS = 5
@@ -77,7 +95,7 @@ function ellipsoidHeight(p: PositionReport): number | undefined {
  * the panel and the map read the state.
  */
 class CompanionStore {
-  private state: CompanionState = { devices: [], me: null, trackers: {} }
+  private state: CompanionState = { devices: [], me: null, trackers: {}, joinRequests: [] }
   private listeners = new Set<() => void>()
   private nextId = 1
   private nmea = new Map<number, NmeaFixer>()
@@ -103,6 +121,11 @@ class CompanionStore {
     return id
   }
 
+  /** Forgets a join request once it was answered. */
+  dropJoinRequest(loraId: string) {
+    this.set({ joinRequests: this.state.joinRequests.filter((r) => r.loraId !== loraId) })
+  }
+
   removeDevice(id: number) {
     this.nmea.delete(id)
     this.pstkAt.delete(id)
@@ -126,8 +149,39 @@ class CompanionStore {
     if (!msg || !device) return
     switch (msg.type) {
       case 'id':
-        this.patch(id, { kind: msg.kind, name: msg.name, firmware: msg.firmware, protocol: 'pstk', lastSeen: now })
+        this.patch(id, {
+          kind: msg.kind,
+          name: msg.name,
+          firmware: msg.firmware,
+          net: msg.net,
+          loraId: msg.device,
+          protocol: 'pstk',
+          lastSeen: now,
+        })
         return
+      case 'heard':
+        // A team member's position, heard over LoRa by this base station.
+        if (msg.inner?.type === 'pos' && msg.inner.pos.src !== SRC_SELF) {
+          this.position(device, { ...msg.inner.pos, rssi: msg.rssi, snr: msg.snr }, 'pstk', now, backlog)
+        } else {
+          this.patch(id, { lastSeen: now })
+        }
+        return
+      case 'joinreq': {
+        if (backlog) return
+        const others = this.state.joinRequests.filter((r) => r.loraId !== msg.device)
+        const request: JoinRequest = {
+          loraId: msg.device,
+          callsign: msg.callsign,
+          rssi: msg.rssi,
+          snr: msg.snr,
+          receivedAt: now,
+          deviceId: id,
+        }
+        this.set({ joinRequests: [...others, request] })
+        this.patch(id, { lastSeen: now })
+        return
+      }
       case 'log':
       case 'err': {
         const logs = [...device.logs, { time: now, text: msg.text, error: msg.type === 'err' }].slice(-MAX_LOGS)
@@ -173,6 +227,7 @@ class CompanionStore {
           snr: p.snr,
           receivedAt: now,
           deviceId: device.id,
+          utc: p.utc,
         }
         this.set({ trackers: { ...this.state.trackers, [p.src]: tracker } })
       }

@@ -29,6 +29,20 @@ export const es: Record<MessageKey, string> = {
   'receiver.start': 'Recibir',
   'receiver.disconnect': 'Desconectar',
 
+  'team.title': 'Equipo LoRa',
+  'team.noBase':
+    'Conectá la estación base (Heltec Wireless Tracker con el firmware de base) en GPS USB para manejar la red del equipo.',
+  'team.network': 'Red',
+  'team.newNet': 'Red nueva',
+  'team.newNetConfirm': '¿Empezar una red nueva? Todos los satélites van a tener que pedir unirse de nuevo.',
+  'team.requests': 'Piden unirse',
+  'team.accept': 'Aceptar',
+  'team.reject': 'Rechazar',
+  'team.members': 'Escuchados por LoRa ({count})',
+  'team.noMembers': 'Todavía no se escuchó a nadie. Los satélites aparecen cuando se unen y mandan su posición.',
+  'team.ago': 'hace {s} s',
+  'team.relayHelp': 'La estación base retransmite al equipo y manda el globo a todos por LoRa.',
+
   'gps.title': 'GPS USB',
   'gps.unsupported': 'Los GPS USB necesitan Web Serial: Chrome o Edge en una computadora.',
   'gps.intro':

@@ -15,6 +15,13 @@ export type Fix = typeof FIX_NO_GPS | typeof FIX_SEARCHING | typeof FIX_OK
 
 /** POS src of the device's own GPS; anything else is a remote tracker's id. */
 export const SRC_SELF = 'SELF'
+/** POS src the base station uses over LoRa. */
+export const SRC_BASE = 'BASE'
+/** ID kind of the base station (GPS + LoRa on this computer) and of satellite nodes. */
+export const KIND_BASE = 'BASE'
+export const KIND_LORA = 'LORA'
+/** Net of a LoRa node that isn't on a network. */
+export const NO_NET = '----'
 
 /** A position report. Missing fields are unknown. */
 export type PositionReport = {
@@ -69,8 +76,12 @@ export type RmcSentence = {
 }
 
 export type CompanionMessage =
-  | { type: 'id'; proto?: number; kind: string; name: string; firmware: string }
+  | { type: 'id'; proto?: number; kind: string; name: string; firmware: string; net?: string; device?: string }
   | { type: 'pos'; pos: PositionReport }
+  /** A sentence the base station heard over LoRa on its network. */
+  | { type: 'heard'; rssi?: number; snr?: number; inner: CompanionMessage | null }
+  /** A satellite asking the base station to let it into the network. */
+  | { type: 'joinreq'; rssi?: number; snr?: number; device: string; callsign: string }
   | { type: 'log'; text: string }
   | { type: 'err'; text: string }
   | GgaSentence
@@ -139,7 +150,23 @@ function parsePstk(body: string): CompanionMessage | null {
   const f = body.split(',')
   switch (f[1]) {
     case 'ID':
-      return { type: 'id', proto: num(f[2]), kind: f[3] ?? '', name: f[4] ?? '', firmware: f[5] ?? '' }
+      return {
+        type: 'id',
+        proto: num(f[2]),
+        kind: f[3] ?? '',
+        name: f[4] ?? '',
+        firmware: f[5] ?? '',
+        net: f[6] || undefined,
+        device: f[7] || undefined,
+      }
+    case 'HEARD': {
+      // HEARD,rssi,snr,<inner sentence without $ and *hh>
+      const inner = f.slice(4).join(',')
+      return { type: 'heard', rssi: num(f[2]), snr: num(f[3]), inner: inner.startsWith('PSTK,') ? parsePstk(inner) : null }
+    }
+    case 'JOINREQ':
+      if (!f[4] || !f[5]) return null
+      return { type: 'joinreq', rssi: num(f[2]), snr: num(f[3]), device: f[4], callsign: f[5] }
     case 'POS':
       return parsePos(f.slice(2))
     case 'LOG':
@@ -150,6 +177,62 @@ function parsePstk(body: string): CompanionMessage | null {
     }
   }
   return null
+}
+
+const field = (n: number | undefined, digits: number) => (n === undefined || !Number.isFinite(n) ? '' : n.toFixed(digits))
+
+/** POS body (no $ / checksum) for a position to send over LoRa, e.g. relaying a team member. */
+export function posBody(p: {
+  src: string
+  lat: number
+  lon: number
+  altMsl?: number
+  speed?: number
+  course?: number
+  utc?: number
+}): string {
+  return [
+    'PSTK',
+    'POS',
+    p.src,
+    FIX_OK,
+    '',
+    '',
+    p.lat.toFixed(6),
+    p.lon.toFixed(6),
+    field(p.altMsl, 1),
+    '',
+    field(p.speed, 2),
+    field(p.course, 1),
+    p.utc === undefined ? '' : Math.round(p.utc),
+  ].join(',')
+}
+
+/** SONDE body for the balloon the decoder is following. */
+export function sondeBody(s: {
+  serial: string
+  frame: number
+  lat: number
+  lon: number
+  alt: number
+  climb?: number
+  speed?: number
+  course?: number
+  utc?: number
+}): string {
+  return [
+    'PSTK',
+    'SONDE',
+    s.serial,
+    s.frame,
+    s.lat.toFixed(6),
+    s.lon.toFixed(6),
+    s.alt.toFixed(0),
+    field(s.climb, 1),
+    field(s.speed, 1),
+    field(s.course, 0),
+    s.utc === undefined ? '' : Math.round(s.utc),
+  ].join(',')
 }
 
 /** NMEA ddmm.mmmm (latitude) or dddmm.mmmm (longitude) plus hemisphere to signed degrees. */

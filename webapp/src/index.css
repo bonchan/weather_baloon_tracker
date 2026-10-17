@@ -748,3 +748,36 @@ select:disabled {
     flex-wrap: wrap;
   }
 }
+
+/* ---------- LoRa team ---------- */
+
+.team-net {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.team-net-id {
+  font-size: 18px;
+  color: var(--accent);
+  flex: 1;
+}
+.team-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.team-request {
+  border: 1px solid rgba(245, 185, 66, 0.4);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: rgba(245, 185, 66, 0.06);
+}
+.team-right {
+  text-align: right;
+}
+.team-quiet strong {
+  color: var(--muted);
+}

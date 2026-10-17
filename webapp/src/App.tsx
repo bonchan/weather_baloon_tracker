@@ -1,8 +1,10 @@
 import { lazy, Suspense, useState } from 'react'
+import { startTeamRelay } from './companion/team'
 import { CompanionPanel } from './components/CompanionPanel'
 import { DevicePanel } from './components/DevicePanel'
 import { SpectrumView } from './components/SpectrumView'
 import { StatsPanel } from './components/StatsPanel'
+import { TeamPanel } from './components/TeamPanel'
 import { TuningPanel } from './components/TuningPanel'
 import { formatMHz } from './format'
 import { LANGUAGES, setLang, useI18n, type Lang } from './i18n'
@@ -10,6 +12,8 @@ import { useSdrState } from './sdr/useSdr'
 
 // MapLibre is large; load it the first time the map tab opens.
 const MapView = lazy(() => import('./map/MapView'))
+
+startTeamRelay()
 
 type Tab = 'spectrum' | 'map'
 
@@ -69,6 +73,7 @@ export default function App() {
       <aside className="sidebar">
         <DevicePanel state={state} />
         <CompanionPanel />
+        <TeamPanel />
         <TuningPanel state={state} />
         <StatsPanel state={state} />
       </aside>
